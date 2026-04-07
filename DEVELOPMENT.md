@@ -10,24 +10,41 @@
 
 ```
 lavacli/
-├── run.py                  # Convenience runner
+├── pyproject.toml              # Packaging config (version, entry point)
+├── run.py                      # Convenience runner
 ├── lavacli/
-│   ├── __init__.py         # Package marker
-│   ├── __main__.py         # Entry point (python -m lavacli)
-│   ├── app.py              # Main curses app loop, layout, input handling
-│   ├── lamp.py             # Lamp class: shapes, metaball physics, rendering
-│   ├── menu.py             # Interactive animated selection menu
-│   ├── noise.py            # Pure-Python 3D Perlin noise + FBM
-│   └── themes.py           # Color themes and ColorHelper class
+│   ├── __init__.py             # Package marker
+│   ├── __main__.py             # Entry point (python -m lavacli)
+│   ├── app.py                  # Main curses app loop, layout, input handling
+│   ├── lamp.py                 # Lamp class: shapes, metaball physics, rendering
+│   ├── menu.py                 # Interactive animated selection menu
+│   ├── noise.py                # Pure-Python 3D Perlin noise + FBM
+│   └── themes.py               # Color themes and ColorHelper class
 ├── README.md
 ├── CHANGELOG.md
 └── DEVELOPMENT.md
 ```
 
+## Install
+
+```bash
+# Install globally (available from anywhere)
+pipx install /path/to/lavacli
+
+# Editable install (source changes take effect immediately)
+pipx install -e /path/to/lavacli
+
+# Uninstall
+pipx uninstall lavacli
+```
+
 ## Running
 
 ```bash
-# Using the module
+# After install
+lavacli
+
+# Without installing — from the project directory
 python3 -m lavacli
 
 # Using the convenience script

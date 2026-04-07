@@ -4,6 +4,13 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0] - 2026-04-07
+
+### Added
+
+- **Global install via pipx** - `pipx install lavacli` makes the `lavacli` command available from anywhere in the terminal
+- **`pyproject.toml`** - Standard Python packaging with `console_scripts` entry point
+
 ## [0.3.0] - 2026-04-07
 
 ### Added

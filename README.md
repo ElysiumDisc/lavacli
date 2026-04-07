@@ -52,16 +52,42 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 - **Rocket Style** - Mathmos Telstar-inspired rocket ship with pointed nose cone and swept-back fins
 - **Interactive Controls** - Change speed, pause, cycle colors, add/remove blobs, return to menu, toggle HUD
 
+## Install
+
+```bash
+pipx install lavacli
+```
+
+That's it — `lavacli` is now available as a command from anywhere in your terminal.
+
+To install from a local clone instead:
+
+```bash
+pipx install /path/to/lavacli
+```
+
+For development (editable mode, changes take effect immediately):
+
+```bash
+pipx install -e /path/to/lavacli
+```
+
+### Uninstall
+
+```bash
+pipx uninstall lavacli
+```
+
 ## Quick Start
 
 ```bash
-python3 -m lavacli
+lavacli
 ```
 
-Or use the convenience script:
+Or run directly without installing:
 
 ```bash
-python3 run.py
+python3 -m lavacli
 ```
 
 ## Controls
