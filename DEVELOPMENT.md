@@ -25,8 +25,6 @@ lavacli/
 
 ## Running
 
-### From the project root
-
 ```bash
 # Using the module
 python3 -m lavacli
@@ -35,44 +33,57 @@ python3 -m lavacli
 python3 run.py
 ```
 
-### Key modules
+## Architecture
+
+### Key Modules
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Curses setup, animation loop, input dispatch, layout calculation, resize handling |
-| `lamp.py` | Core simulation: shape profiles, `Ball`/`Lamp` classes, metaball field computation, half-block rendering |
-| `themes.py` | Theme definitions (7 themes), `ColorHelper` for curses color pair management |
-| `menu.py` | Interactive TUI menu using curses |
-
-## Architecture
+| `app.py` | Curses setup, animation loop, input dispatch, layout, resize handling |
+| `lamp.py` | Core simulation: shape profiles, `Ball`/`Lamp` classes, metaball field computation, half-block rendering, solid base/cap rendering |
+| `themes.py` | Theme definitions (7 themes with colored liquids), `ColorHelper` for curses color pair management |
+| `menu.py` | Interactive TUI menu |
 
 ### Rendering Pipeline
 
 Each frame:
 
-1. **Input** - `screen.getch()` with timeout (acts as frame limiter)
+1. **Input** - `screen.getch()` with timeout (acts as frame limiter at ~14fps)
 2. **Physics** - `Lamp.update()` advances ball positions, temperature, collisions
 3. **Render** - `screen.erase()`, then for each lamp:
-   - Compute screen bounds from shape profile
-   - For each cell: compute metaball field at top/bottom half-rows
-   - Map field strength to lava intensity level (0-5)
-   - Draw half-block character with appropriate color pair
-   - Draw side borders with diagonal chars for curves
-   - Draw cap (with top horizontal border) and base
+   - **Cap** - Solid metallic dome rendered with half-blocks
+   - **Body** - Compute metaball field at each half-cell, map to lava intensity, draw with colored liquid background
+   - **Base** - Solid metallic hourglass rendered with half-blocks and highlight/shadow
 4. **Refresh** - `noutrefresh()` + `doupdate()` for flicker-free output
 
 ### Shape System
 
-Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). The `Lamp` class interpolates these using smoothstep (cubic Hermite) for smooth curves, then quantizes to integer column positions for rendering.
+Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). All shapes are **conical** (narrow at top, wide at bottom) to match real lava lamp silhouettes. Interpolation uses smoothstep (cubic Hermite) for smooth curves.
+
+The base uses a separate `BASE_PROFILE` defining the hourglass/pedestal shape, and the cap uses `CAP_PROFILE` for the small dome.
+
+### Size System
+
+Five sizes modeled after real lava lamp dimensions:
+
+| Key | Name | Body (HxW) | Base H | Cap H | Balls | Radius |
+|-----|------|-----------|--------|-------|-------|--------|
+| S | 11.5" | 14x8 | 5 | 2 | 3 | 1.8 |
+| M | 14.5" | 20x12 | 6 | 2 | 4 | 2.4 |
+| L | 16.3" | 26x14 | 8 | 3 | 5 | 3.0 |
+| XL | 17" | 30x16 | 9 | 3 | 6 | 3.4 |
+| G | 27" Grande | 40x22 | 12 | 3 | 8 | 4.5 |
+
+Sizes auto-scale to fit the terminal. The default is 27" Grande.
 
 ### Color Pair Management
 
 `ColorHelper` pre-allocates curses color pairs for all needed foreground/background combinations:
 
-- `(N+1)^2` pairs for lava level x lava level combos (N = 5 lava levels + glass)
-- Additional pairs for borders, base, text, UI elements
+- `(N+1)^2` pairs for lava/liquid combos (N = 5 lava levels + liquid background)
+- Additional pairs for base highlight/shadow, borders, text, UI elements
 
-Half-block rendering requires precise fg/bg pairing since `▀` uses fg for the top half and bg for the bottom half.
+Each theme defines a `liquid` color (the colored background visible inside the glass) in addition to the lava gradient colors, creating the authentic colored-liquid look of real lava lamps.
 
 ### Physics Parameters
 
@@ -97,9 +108,10 @@ In `themes.py`, add to the `THEMES` dict:
 'my_theme': {
     'name': 'My Theme',
     'lava': [c1, c2, c3, c4, c5],  # 5 ANSI 256-color codes, dim to bright
-    'glass': 234,                    # interior background color
-    'border': 245,                   # lamp outline color
-    'base': 240,                     # cap/base color
+    'liquid': 53,                    # colored liquid background
+    'base_color': 249,               # metallic base highlight
+    'base_shadow': 243,              # metallic base shadow
+    'border': 96,                    # subtle glass edge color
     'glow': 52,                      # ambient glow color
 },
 ```
@@ -112,11 +124,9 @@ In `lamp.py`, add to the `SHAPES` dict:
 
 ```python
 'my_shape': [
-    (0.00, 0.30),  # (normalized_y, normalized_width)
-    (0.25, 0.80),  # width should be > 0.15 at extremes
-    (0.50, 1.00),  # 1.0 = full lamp width
-    (0.75, 0.80),
-    (1.00, 0.30),
+    (0.00, 0.25),   # narrow top
+    (0.50, 0.70),   # widens
+    (1.00, 1.00),   # widest at bottom (conical)
 ],
 ```
 
@@ -140,8 +150,8 @@ Then add `'my_flow'` to `FLOW_ORDER`.
 
 | Issue | Solution |
 |-------|----------|
-| `Terminal too small` | Resize terminal to at least 50x22 |
+| `Terminal too small` | Resize terminal to at least 46x20 |
 | No colors / garbled output | Ensure `TERM` is set to `xterm-256color` or similar |
-| Unicode boxes instead of smooth curves | Terminal needs Unicode support; try a modern emulator |
-| Flickering | Terminal may not support double-buffering well; try reducing lamp count |
+| Unicode boxes instead of smooth blobs | Terminal needs Unicode support; try a modern emulator |
+| Flickering | Try reducing lamp count or using a GPU-accelerated terminal |
 | Import error on Windows | Install `windows-curses`: `pip install windows-curses` |
