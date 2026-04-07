@@ -44,6 +44,18 @@ SHAPES = {
         (0.40, 0.87), (0.50, 1.00), (0.60, 0.87), (0.70, 0.70),
         (0.80, 0.60), (0.90, 0.55), (1.00, 0.52),
     ],
+    'cylinder': [  # Straight tube style - flat sides like vintage tube lamps
+        (0.00, 0.92), (0.05, 0.96), (0.10, 0.98), (0.15, 1.00),
+        (0.85, 1.00), (0.90, 0.98), (0.95, 0.96), (1.00, 0.92),
+    ],
+    'pear': [  # Retro bulbous/pear shape - wide belly, narrow neck
+        (0.00, 0.24), (0.05, 0.28), (0.10, 0.34), (0.15, 0.40),
+        (0.20, 0.48), (0.25, 0.58), (0.30, 0.68), (0.35, 0.78),
+        (0.40, 0.86), (0.45, 0.93), (0.50, 0.98), (0.55, 1.00),
+        (0.60, 1.00), (0.65, 0.98), (0.70, 0.95), (0.75, 0.92),
+        (0.80, 0.88), (0.85, 0.85), (0.90, 0.82), (0.95, 0.80),
+        (1.00, 0.78),
+    ],
     'rocket': [  # Mathmos Telstar rocket - torpedo/bullet shape, widest in middle
         (0.00, 0.30), (0.05, 0.42), (0.10, 0.54), (0.15, 0.65),
         (0.20, 0.74), (0.25, 0.82), (0.30, 0.89), (0.35, 0.94),
@@ -57,7 +69,7 @@ SHAPES = {
     ],
 }
 
-SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'rocket', 'freestyle']
+SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle']
 
 # Rocket-specific nose cone (pointed tip) and fin base profiles
 ROCKET_CAP_PROFILE = [
@@ -72,20 +84,23 @@ ROCKET_CAP_PROFILE = [
 ]
 
 ROCKET_BASE_PROFILE = [
-    # Swept-back rocket fins: narrow body, wide fin tips
-    (0.00, 0.80),   # top: connects to glass bottom
-    (0.05, 0.65),
-    (0.10, 0.50),
-    (0.15, 0.38),
-    (0.20, 0.28),
-    (0.30, 0.18),   # narrow rocket body
-    (0.40, 0.15),   # narrowest
-    (0.50, 0.18),
-    (0.60, 0.28),   # fins begin flaring
-    (0.70, 0.45),
-    (0.80, 0.65),
-    (0.88, 0.82),
-    (0.94, 0.94),
+    # Swept-back rocket fins (scaled to full body_width)
+    # Glass bottom is ~0.38 of body_width, so base top matches that
+    (0.00, 0.40),   # top: cups the narrow glass bottom
+    (0.05, 0.34),
+    (0.10, 0.28),
+    (0.15, 0.22),
+    (0.20, 0.18),
+    (0.28, 0.14),   # narrow rocket body/stem
+    (0.36, 0.12),   # narrowest point
+    (0.44, 0.14),
+    (0.52, 0.18),
+    (0.60, 0.28),   # fins begin flaring outward
+    (0.68, 0.42),
+    (0.76, 0.58),
+    (0.84, 0.74),
+    (0.90, 0.86),
+    (0.95, 0.94),
     (1.00, 1.00),   # wide fin tips on surface
 ]
 
@@ -134,6 +149,28 @@ CAP_PROFILE = [
     (0.60, 0.88),
     (0.80, 0.95),
     (1.00, 1.00),   # connects to body top
+]
+
+# Cylinder/tube style: flat disc cap and simple cone base
+CYLINDER_CAP_PROFILE = [
+    (0.00, 0.90),   # flat disc - nearly same width top to bottom
+    (0.50, 0.95),
+    (1.00, 1.00),   # connects to body
+]
+
+CYLINDER_BASE_PROFILE = [
+    # Simple cone base (no hourglass) like vintage tube lamps
+    (0.00, 1.00),   # top: matches glass bottom
+    (0.10, 0.92),
+    (0.20, 0.82),
+    (0.30, 0.72),
+    (0.40, 0.62),
+    (0.50, 0.54),
+    (0.60, 0.48),
+    (0.70, 0.44),
+    (0.80, 0.42),   # tapers to narrow foot
+    (0.90, 0.42),
+    (1.00, 0.44),   # slight flare at very bottom for stability
 ]
 
 # ---------------------------------------------------------------------------
@@ -328,18 +365,34 @@ class Lamp:
             return (left, right)
         return (left + 1.0, right - 1.0)
 
+    def _get_base_profile(self):
+        if self.style == 'rocket':
+            return ROCKET_BASE_PROFILE
+        elif self.style == 'cylinder':
+            return CYLINDER_BASE_PROFILE
+        return BASE_PROFILE
+
+    def _get_cap_profile(self):
+        if self.style == 'rocket':
+            return ROCKET_CAP_PROFILE
+        elif self.style == 'cylinder':
+            return CYLINDER_CAP_PROFILE
+        return CAP_PROFILE
+
     def _base_bounds_at(self, norm_y, body_bottom_width):
         """Base width at normalized y (0=top, 1=bottom), scaled to columns."""
-        profile = ROCKET_BASE_PROFILE if self.style == 'rocket' else BASE_PROFILE
+        profile = self._get_base_profile()
         ratio = _interpolate_profile(profile, norm_y)
-        half = ratio * body_bottom_width / 2
+        # Rocket fins extend relative to full body width so they flare wide
+        ref_w = self.body_width if self.style == 'rocket' else body_bottom_width
+        half = ratio * ref_w / 2
         center = self.body_width / 2
         return (center - half, center + half)
 
     def _cap_bounds_at(self, norm_y, body_top_width):
         """Cap width at normalized y (0=top, 1=bottom), scaled to columns.
         Returns bounds in LOCAL coords (relative to top_left of body)."""
-        profile = ROCKET_CAP_PROFILE if self.style == 'rocket' else CAP_PROFILE
+        profile = self._get_cap_profile()
         ratio = _interpolate_profile(profile, norm_y)
         half = ratio * body_top_width / 2
         center = body_top_width / 2
@@ -545,7 +598,7 @@ class Lamp:
                 py_t = row * 2
                 py_b = row * 2 + 1
                 px = col - top_left + 0.5
-                _cp = ROCKET_CAP_PROFILE if self.style == 'rocket' else CAP_PROFILE
+                _cp = self._get_cap_profile()
                 cap_w_t = _interpolate_profile(_cp,
                             py_t / max(1, self.cap_height * 2)) * body_top_w
                 cap_w_b = _interpolate_profile(_cp,
@@ -575,10 +628,9 @@ class Lamp:
             norm_y = row / max(1, self.base_height - 1) if self.base_height > 1 else 1.0
             bl, br = self._base_bounds_at(norm_y, body_bot_w)
 
-            # Center relative to body
-            center_offset = self.body_width / 2
-            left = int(math.ceil(center_offset + bl - body_bot_w / 2))
-            right = int(math.floor(center_offset + br - body_bot_w / 2)) - 1
+            # bl, br are already in absolute body-grid coords (centered at body_width/2)
+            left = int(math.ceil(bl))
+            right = int(math.floor(br)) - 1
             left = max(0, left)
             right = min(self.body_width - 1, right)
             sy = base_y + row
@@ -587,16 +639,18 @@ class Lamp:
                 # Half-block rendering for smooth base shape
                 py_t = row * 2
                 py_b = row * 2 + 1
-                px = (col - center_offset) + body_bot_w / 2
+                px = col + 0.5  # absolute body-grid position
 
-                _bp = ROCKET_BASE_PROFILE if self.style == 'rocket' else BASE_PROFILE
+                _bp = self._get_base_profile()
+                ref_w = self.body_width if self.style == 'rocket' else body_bot_w
                 bw_t = _interpolate_profile(_bp,
-                            py_t / max(1, self.base_height * 2)) * body_bot_w
+                            py_t / max(1, self.base_height * 2)) * ref_w
                 bw_b = _interpolate_profile(_bp,
-                            py_b / max(1, self.base_height * 2)) * body_bot_w
+                            py_b / max(1, self.base_height * 2)) * ref_w
+                cx = self.body_width / 2
 
-                t_in = (body_bot_w / 2 - bw_t / 2) <= px <= (body_bot_w / 2 + bw_t / 2)
-                b_in = (body_bot_w / 2 - bw_b / 2) <= px <= (body_bot_w / 2 + bw_b / 2)
+                t_in = (cx - bw_t / 2) <= px <= (cx + bw_t / 2)
+                b_in = (cx - bw_b / 2) <= px <= (cx + bw_b / 2)
 
                 # 3-tone metallic shading matching hourglass shape:
                 # hi: top collar + foot lip (widest, catch light)
