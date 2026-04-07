@@ -35,7 +35,7 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 
 ## Features
 
-- **7 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Rocket (Mathmos Telstar), and Freestyle (fullscreen lava)
+- **9 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), and Freestyle (fullscreen lava)
 - **10 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome - inspired by classic 1992-2004 Lava Library color codes
 - **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
 - **1-6 Lamps** - Display multiple lava lamps side by side
@@ -50,7 +50,7 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 - **Heat/Buoyancy Cycle** - Blobs heat at the bottom, rise, cool at the top, and sink back down
 - **Dark Metallic Base** - Hourglass-shaped base with 3-tone shading, matching classic black lava lamp bases
 - **Rocket Style** - Mathmos Telstar-inspired rocket ship with pointed nose cone and swept-back fins
-- **Interactive Controls** - Change speed, pause, cycle colors, add/remove blobs, return to menu
+- **Interactive Controls** - Change speed, pause, cycle colors, add/remove blobs, return to menu, toggle HUD
 
 ## Quick Start
 
@@ -88,6 +88,7 @@ python3 run.py
 | `B` | Add a blob to each lamp |
 | `V` | Remove a blob from each lamp |
 | `R` | Reset all lamps |
+| `H` | Toggle HUD (show/hide bottom bar) |
 
 ## Styles
 
@@ -98,6 +99,8 @@ python3 run.py
 | Globe | Rounded bulbous shape, wider in upper portion |
 | Lava | Organic wavy silhouette |
 | Diamond | Angular, widest at center |
+| Cylinder | Straight tube with flat cap and cone base (vintage style) |
+| Pear | Retro bulbous shape with narrow neck and wide belly |
 | Rocket | Mathmos Telstar rocket ship with pointed nose and swept fins |
 | Freestyle | No lamp frame - fullscreen lava fills the terminal |
 

@@ -56,14 +56,14 @@ Each frame (~20fps):
    - **Cap** - Solid metallic collar/nose cone with 3-tone shading and half-blocks
    - **Body** - Dark frame outline + compute field at each half-cell, map to lava intensity (with rim glow), draw with colored liquid background
    - **Base** - Solid metallic hourglass/fins with 3-tone highlight/mid/shadow
-4. **HUD** - Controls bar at bottom
+4. **HUD** - Controls bar at bottom (toggleable with `H`)
 5. **Refresh** - `noutrefresh()` + `doupdate()` for flicker-free output
 
 ### Shape System
 
 Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). Interpolation uses smoothstep (cubic Hermite) for smooth curves.
 
-7 styles available:
+9 styles available:
 
 | Style | Shape | Profile |
 |-------|-------|---------|
@@ -72,10 +72,12 @@ Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 
 | Globe | Bulbous, wider at top | `SHAPES['globe']` |
 | Lava | Organic wavy | `SHAPES['lava']` |
 | Diamond | Angular, widest at center | `SHAPES['diamond']` |
+| Cylinder | Straight tube, flat sides | `SHAPES['cylinder']` + `CYLINDER_CAP_PROFILE` + `CYLINDER_BASE_PROFILE` |
+| Pear | Bulbous belly, narrow neck | `SHAPES['pear']` |
 | Rocket | Torpedo/bullet, widest in middle | `SHAPES['rocket']` + `ROCKET_CAP_PROFILE` + `ROCKET_BASE_PROFILE` |
 | Freestyle | Full-width rectangle | `SHAPES['freestyle']` (no frame) |
 
-The base uses `BASE_PROFILE` (hourglass pedestal) or `ROCKET_BASE_PROFILE` (swept fins). The cap uses `CAP_PROFILE` (cylindrical collar) or `ROCKET_CAP_PROFILE` (pointed nose cone).
+Style-specific profiles are selected via `Lamp._get_cap_profile()` and `Lamp._get_base_profile()`. The default base uses `BASE_PROFILE` (hourglass pedestal), rocket uses `ROCKET_BASE_PROFILE` (swept fins), and cylinder uses `CYLINDER_BASE_PROFILE` (simple cone).
 
 ### Size System
 

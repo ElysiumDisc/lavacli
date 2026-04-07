@@ -97,6 +97,7 @@ def draw_hud(screen, term_h, term_w, lamps, ch, speed):
         'C:Colors',
         'B/V:Blobs',
         'R:Reset',
+        'H:Hide',
     ]
     hud = '  '.join(parts)
     try:
@@ -147,6 +148,7 @@ def _run_lamp(screen, config):
 
     positions = layout_lamps(lamps, term_w, term_h) if not is_freestyle else [(0, 0)]
     theme_idx = THEME_ORDER.index(config['theme'])
+    show_hud = True
 
     frame_ms = 50  # ~20 fps
     screen.timeout(frame_ms)
@@ -185,6 +187,8 @@ def _run_lamp(screen, config):
         elif key in (ord('v'), ord('V')):
             for lamp in lamps:
                 lamp.remove_ball()
+        elif key in (ord('h'), ord('H')):
+            show_hud = not show_hud
         elif key in (ord('r'), ord('R')):
             lamps.clear()
             body_w, body_h, num_balls, ball_r, base_h, cap_h = calculate_lamp_dims(
@@ -208,8 +212,9 @@ def _run_lamp(screen, config):
 
         if not is_freestyle:
             draw_shelf(screen, positions, lamps, term_w, ch)
-        draw_hud(screen, term_h, term_w, lamps, ch,
-                 lamps[0].speed_mult if lamps else 1.0)
+        if show_hud:
+            draw_hud(screen, term_h, term_w, lamps, ch,
+                     lamps[0].speed_mult if lamps else 1.0)
 
         try:
             screen.noutrefresh()

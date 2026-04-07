@@ -9,12 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Rocket style** - Mathmos Telstar-inspired rocket ship lava lamp with pointed nose cone and swept-back fin base
+- **Cylinder style** - Vintage straight-tube lava lamp with flat disc cap and simple cone base
+- **Pear style** - Retro bulbous shape with narrow neck and wide belly
 - **Freestyle mode** - Fullscreen lava fills the entire terminal with no lamp frame
 - **Liquid flow type** - Pure-Python 3D Perlin noise with fractal Brownian motion for smooth organic flowing patterns
 - **Rim/edge glow effect** - Dual-threshold metaball rendering creates a glowing halo around each lava blob
 - **Groovy animated menu** - Lava background animation, rotating groovy taglines, decorative border, live theme preview
 - **3 new themes** - Blue Purple, Clear Red, Clear Orange (inspired by classic Lava Library color codes)
 - **Return to menu** - Press `M` during animation to go back to the menu
+- **Toggle HUD** - Press `H` to show/hide the bottom controls bar for a clean view
 - Pure-Python `noise.py` module with Perlin noise and FBM (no external dependencies)
 
 ### Changed
@@ -30,7 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Better proportions** - Glass ~57%, Base ~34%, Cap ~8% of total height (was ~73%/22%/5%)
 - **More blobs** - Default ball counts increased for more impressive display
 - **Faster animation** - ~20fps (was ~14fps) for smoother lava flow
-- **7 styles** (was 5) - added Rocket and Freestyle
+- **9 styles** (was 5) - added Cylinder, Pear, Rocket, and Freestyle
 - **6 flow types** (was 5) - added Liquid (Perlin noise)
 - Menu now shows only selected option per field (no overflow)
 
