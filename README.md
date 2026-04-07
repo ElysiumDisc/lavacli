@@ -1,6 +1,6 @@
 # LavaCLI
 
-A beautiful, interactive terminal lava lamp simulator with metaball physics, half-block rendering, and full customization.
+A beautiful, interactive terminal lava lamp simulator with metaball physics, Perlin noise flow, half-block rendering, and full customization.
 
 ```
           ╭─╮
@@ -35,18 +35,22 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, hal
 
 ## Features
 
-- **5 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond - conical profiles matching real lava lamp silhouettes
-- **7 Color Themes** - Retro Red, Ocean Blue, Neon Green, Sunset, Purple Haze, Psychedelic, Monochrome - each with colored liquid backgrounds just like real lamps
-- **5 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl (with vortex physics)
+- **7 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Rocket (Mathmos Telstar), and Freestyle (fullscreen lava)
+- **10 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome - inspired by classic 1992-2004 Lava Library color codes
+- **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
 - **1-6 Lamps** - Display multiple lava lamps side by side
 - **5 Sizes** - 11.5", 14.5", 16.3", 17", and 27" Grande (default)
+- **Freestyle Mode** - Fullscreen lava with no lamp frame, filling the entire terminal
+- **Groovy Animated Menu** - Lava background, rotating taglines, live theme preview
+- **Rim/Edge Glow** - Dual-threshold rendering gives lava blobs a glowing halo edge
 - **Resizable** - Lamps adapt when you resize the terminal
 - **Half-Block Rendering** - Uses Unicode `▀▄█` characters for 2x vertical resolution
 - **Metaball Physics** - Real metaball field simulation for authentic blob merging/splitting
+- **Perlin Noise Flow** - Pure-Python 3D Perlin noise with fractal Brownian motion for smooth organic liquid animation
 - **Heat/Buoyancy Cycle** - Blobs heat at the bottom, rise, cool at the top, and sink back down
-- **Solid Metallic Base** - Hourglass-shaped base rendered with filled half-blocks
-- **Interactive Controls** - Change speed, pause, cycle colors, add/remove blobs in real time
-- **Colored Liquid** - Each theme has a distinct liquid color (purple, navy, forest green, etc.)
+- **Dark Metallic Base** - Hourglass-shaped base with 3-tone shading, matching classic black lava lamp bases
+- **Rocket Style** - Mathmos Telstar-inspired rocket ship with pointed nose cone and swept-back fins
+- **Interactive Controls** - Change speed, pause, cycle colors, add/remove blobs, return to menu
 
 ## Quick Start
 
@@ -76,6 +80,7 @@ python3 run.py
 | Key | Action |
 |-----|--------|
 | `Q` / `Esc` | Quit |
+| `M` | Return to menu |
 | `Space` | Pause / Resume |
 | `+` / `=` | Speed up (up to 300%) |
 | `-` | Slow down (down to 25%) |
@@ -83,6 +88,46 @@ python3 run.py
 | `B` | Add a blob to each lamp |
 | `V` | Remove a blob from each lamp |
 | `R` | Reset all lamps |
+
+## Styles
+
+| Style | Description |
+|-------|-------------|
+| Classic | The iconic 16.3" conical lava lamp |
+| Slim | Straighter taper, 14.5" profile |
+| Globe | Rounded bulbous shape, wider in upper portion |
+| Lava | Organic wavy silhouette |
+| Diamond | Angular, widest at center |
+| Rocket | Mathmos Telstar rocket ship with pointed nose and swept fins |
+| Freestyle | No lamp frame - fullscreen lava fills the terminal |
+
+## Themes
+
+Inspired by the classic 1992-2004 Lava Library color codes with dark bases:
+
+| Theme | Lava | Liquid |
+|-------|------|--------|
+| Yellow Red | Red-orange-yellow gradient | Yellow |
+| Blue White | White-to-blue gradient | Blue |
+| Clear Orange | Orange-gold gradient | Clear/dark |
+| Purple Haze | Pink-magenta gradient | Dark purple |
+| Neon Green | Bright green-cyan | Forest green |
+| Blue Purple | Purple-lavender gradient | Deep blue |
+| Clear Red | Bright red-rose | Clear/dark |
+| Sunset | Red-orange-yellow | Maroon |
+| Psychedelic | Rainbow | Navy |
+| Monochrome | Gray-to-white | Black |
+
+## Flow Types
+
+| Flow | Description |
+|------|-------------|
+| Classic | Standard gravity + buoyancy cycle |
+| Chaotic | Stronger forces, more unpredictable |
+| Zen | Slow, peaceful drift |
+| Bouncy | High elasticity, balls bounce energetically |
+| Swirl | Vortex physics spiraling around the center |
+| Liquid | Perlin noise organic flow - smooth, flowing patterns instead of distinct blobs |
 
 ## Sizes
 
@@ -93,7 +138,7 @@ Modeled after real lava lamp dimensions:
 | S | 11.5" | Compact desk lamp |
 | M | 14.5" | Standard size |
 | L | 16.3" | Classic 52oz |
-| XL | 17" | Large 32oz |
+| XL | 17" | Large |
 | **G** | **27" Grande** | **The showpiece (default)** |
 
 ## Requirements
@@ -116,7 +161,11 @@ Each lava blob is a "metaball" - a point with a radius that generates an implici
 field(x,y) = sum( radius^2 / distance^2 ) for each ball
 ```
 
-When the field exceeds a threshold, that pixel is "inside" the lava. Nearby blobs naturally merge into smooth shapes.
+When the field exceeds a threshold, that pixel is "inside" the lava. Nearby blobs naturally merge into smooth shapes. A secondary rim threshold creates a glowing edge around each blob for visual depth.
+
+### Perlin Noise Flow
+
+The "Liquid" flow type uses 3D Perlin noise with fractal Brownian motion (3 octaves) instead of metaball physics. Time advances continuously through the noise field, creating smooth organic flowing patterns. No ball physics needed - just `fbm3(x * scale, y * scale, time)`.
 
 ### Heat/Buoyancy Cycle
 
@@ -128,7 +177,7 @@ Each terminal cell is split into two vertical halves using Unicode half-block ch
 
 ### Solid Base/Cap
 
-The metallic base and cap are rendered as filled shapes using half-block characters with highlight/shadow colors, creating the iconic hourglass pedestal.
+The metallic base and cap are rendered as filled shapes using half-block characters with 3-tone highlight/mid/shadow shading. The base uses a classic hourglass profile. The rocket style uses pointed nose cone and swept-back fin profiles.
 
 ## License
 

@@ -4,6 +4,36 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-04-07
+
+### Added
+
+- **Rocket style** - Mathmos Telstar-inspired rocket ship lava lamp with pointed nose cone and swept-back fin base
+- **Freestyle mode** - Fullscreen lava fills the entire terminal with no lamp frame
+- **Liquid flow type** - Pure-Python 3D Perlin noise with fractal Brownian motion for smooth organic flowing patterns
+- **Rim/edge glow effect** - Dual-threshold metaball rendering creates a glowing halo around each lava blob
+- **Groovy animated menu** - Lava background animation, rotating groovy taglines, decorative border, live theme preview
+- **3 new themes** - Blue Purple, Clear Red, Clear Orange (inspired by classic Lava Library color codes)
+- **Return to menu** - Press `M` during animation to go back to the menu
+- Pure-Python `noise.py` module with Perlin noise and FBM (no external dependencies)
+
+### Changed
+
+- **10 color themes** (was 7) - all renamed to clean names, inspired by 1992-2004 Lava Library catalog
+- **Dark bases** - All themes now use dark gray/black bases matching classic lava lamp aesthetics
+- **Dark glass frame outline** - Glass border uses dark contrasting color for pixel-art style definition
+- **Improved base profile** - Proper hourglass shape matching the real Lava Original silver base
+- **Improved cap profile** - Wide cylindrical collar band instead of tiny dome
+- **3-tone metallic shading** - Base and cap use highlight/mid/shadow for richer metallic appearance
+- **Fixed cap rendering bug** - Cap was invisible due to coordinate system mismatch (absolute vs local)
+- **Wider glass top** - Classic shape now starts at 0.36 width (was 0.22) matching real lamp proportions
+- **Better proportions** - Glass ~57%, Base ~34%, Cap ~8% of total height (was ~73%/22%/5%)
+- **More blobs** - Default ball counts increased for more impressive display
+- **Faster animation** - ~20fps (was ~14fps) for smoother lava flow
+- **7 styles** (was 5) - added Rocket and Freestyle
+- **6 flow types** (was 5) - added Liquid (Perlin noise)
+- Menu now shows only selected option per field (no overflow)
+
 ## [0.2.0] - 2026-04-06
 
 ### Changed

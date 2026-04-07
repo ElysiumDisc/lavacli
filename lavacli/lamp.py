@@ -3,6 +3,8 @@ import curses
 import math
 import random
 
+from .noise import fbm3
+
 # ---------------------------------------------------------------------------
 # Shape profiles: (normalized_y, normalized_width)
 # y: 0 = top of glass body, 1 = bottom of glass body
@@ -11,11 +13,11 @@ import random
 # REAL lava lamps are CONICAL: narrow at top, widest at bottom.
 # ---------------------------------------------------------------------------
 SHAPES = {
-    'classic': [  # 16.3"/52oz - the iconic lava lamp
-        (0.00, 0.22), (0.05, 0.26), (0.10, 0.32), (0.15, 0.38),
-        (0.20, 0.45), (0.25, 0.52), (0.30, 0.59), (0.35, 0.65),
-        (0.40, 0.71), (0.45, 0.76), (0.50, 0.80), (0.55, 0.84),
-        (0.60, 0.87), (0.65, 0.90), (0.70, 0.93), (0.75, 0.95),
+    'classic': [  # 16.3"/52oz - the iconic lava lamp (wider glass top like real lamp)
+        (0.00, 0.36), (0.05, 0.40), (0.10, 0.45), (0.15, 0.50),
+        (0.20, 0.56), (0.25, 0.62), (0.30, 0.67), (0.35, 0.72),
+        (0.40, 0.76), (0.45, 0.80), (0.50, 0.84), (0.55, 0.87),
+        (0.60, 0.90), (0.65, 0.92), (0.70, 0.94), (0.75, 0.96),
         (0.80, 0.97), (0.85, 0.98), (0.90, 0.99), (0.95, 1.00),
         (1.00, 1.00),
     ],
@@ -42,37 +44,96 @@ SHAPES = {
         (0.40, 0.87), (0.50, 1.00), (0.60, 0.87), (0.70, 0.70),
         (0.80, 0.60), (0.90, 0.55), (1.00, 0.52),
     ],
+    'rocket': [  # Mathmos Telstar rocket - torpedo/bullet shape, widest in middle
+        (0.00, 0.30), (0.05, 0.42), (0.10, 0.54), (0.15, 0.65),
+        (0.20, 0.74), (0.25, 0.82), (0.30, 0.89), (0.35, 0.94),
+        (0.40, 0.98), (0.45, 1.00), (0.50, 1.00), (0.55, 0.98),
+        (0.60, 0.94), (0.65, 0.89), (0.70, 0.82), (0.75, 0.74),
+        (0.80, 0.65), (0.85, 0.56), (0.90, 0.48), (0.95, 0.42),
+        (1.00, 0.38),
+    ],
+    'freestyle': [  # Full-width rectangle (no lamp frame)
+        (0.00, 1.00), (1.00, 1.00),
+    ],
 }
 
-SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond']
+SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'rocket', 'freestyle']
+
+# Rocket-specific nose cone (pointed tip) and fin base profiles
+ROCKET_CAP_PROFILE = [
+    (0.00, 0.08),   # sharp pointed nose tip
+    (0.15, 0.15),
+    (0.30, 0.28),
+    (0.45, 0.42),
+    (0.60, 0.58),
+    (0.75, 0.76),
+    (0.90, 0.92),
+    (1.00, 1.00),   # connects to glass top
+]
+
+ROCKET_BASE_PROFILE = [
+    # Swept-back rocket fins: narrow body, wide fin tips
+    (0.00, 0.80),   # top: connects to glass bottom
+    (0.05, 0.65),
+    (0.10, 0.50),
+    (0.15, 0.38),
+    (0.20, 0.28),
+    (0.30, 0.18),   # narrow rocket body
+    (0.40, 0.15),   # narrowest
+    (0.50, 0.18),
+    (0.60, 0.28),   # fins begin flaring
+    (0.70, 0.45),
+    (0.80, 0.65),
+    (0.88, 0.82),
+    (0.94, 0.94),
+    (1.00, 1.00),   # wide fin tips on surface
+]
 
 # ---------------------------------------------------------------------------
 # Base profile: hourglass/pedestal shape (relative to body bottom width)
 # The base narrows to a waist then flares out to the foot
 # ---------------------------------------------------------------------------
 BASE_PROFILE = [
-    (0.00, 1.00),   # top: matches body bottom width
-    (0.08, 0.90),
-    (0.16, 0.72),
-    (0.24, 0.55),
-    (0.32, 0.42),
-    (0.40, 0.34),   # waist (narrowest)
-    (0.48, 0.38),
-    (0.56, 0.50),
-    (0.64, 0.62),
-    (0.72, 0.74),
-    (0.80, 0.84),
-    (0.88, 0.92),
-    (0.94, 0.96),
-    (1.00, 0.98),   # foot
+    # Classic Lava Original hourglass base: cone narrows to waist, flares to foot
+    # Matches the real 16.3" silver aluminum base proportions
+    (0.00, 1.00),   # top: cups the glass bottom (widest upper point)
+    (0.04, 0.92),
+    (0.08, 0.82),
+    (0.12, 0.72),
+    (0.16, 0.63),   # upper cone tapers quickly
+    (0.20, 0.55),
+    (0.24, 0.48),
+    (0.28, 0.43),
+    (0.32, 0.39),
+    (0.36, 0.36),
+    (0.40, 0.34),   # waist (narrowest) -- prominent pinch like real lamp
+    (0.44, 0.34),
+    (0.48, 0.36),
+    (0.52, 0.39),
+    (0.56, 0.44),
+    (0.60, 0.50),   # lower cone flares outward
+    (0.64, 0.57),
+    (0.68, 0.64),
+    (0.72, 0.72),
+    (0.76, 0.79),
+    (0.80, 0.85),
+    (0.84, 0.90),
+    (0.88, 0.94),
+    (0.92, 0.97),
+    (0.96, 0.99),
+    (1.00, 1.00),   # wide stable foot
 ]
 
 # Cap profile (relative to body top width)
 CAP_PROFILE = [
-    (0.00, 0.50),   # dome top
-    (0.33, 0.70),
-    (0.66, 0.90),
-    (1.00, 1.00),   # connects to body
+    # Cylindrical collar/band cap (like the real silver cap on Lava Original)
+    # Wide and flat, not a pointy dome -- sits like a lid on the glass
+    (0.00, 0.65),   # top edge: slightly narrower than bottom
+    (0.20, 0.72),
+    (0.40, 0.80),
+    (0.60, 0.88),
+    (0.80, 0.95),
+    (1.00, 1.00),   # connects to body top
 ]
 
 # ---------------------------------------------------------------------------
@@ -104,29 +165,37 @@ FLOW_PARAMS = {
         'random_force': 0.003, 'swirl': 0.02, 'bounce': 0.6,
         'heat_rate': 0.010, 'cool_rate': 0.007,
     },
+    'liquid': {
+        # Perlin noise flow -- params control noise characteristics
+        'gravity': 0.0, 'buoyancy': 0.0, 'damping': 0.0,
+        'random_force': 0.0, 'swirl': 0.0, 'bounce': 0.0,
+        'heat_rate': 0.0, 'cool_rate': 0.0,
+        'noise_scale': 0.06, 'noise_speed': 0.012, 'noise_octaves': 3,
+    },
 }
 
-FLOW_ORDER = ['classic', 'chaotic', 'zen', 'bouncy', 'swirl']
+FLOW_ORDER = ['classic', 'chaotic', 'zen', 'bouncy', 'swirl', 'liquid']
 
 # ---------------------------------------------------------------------------
 # Size presets matching real lava lamp dimensions
 # ---------------------------------------------------------------------------
 SIZE_DEFAULTS = {
-    'S':  {'name': '11.5"',     'body_height': 14, 'body_width': 8,
-            'base_height': 5, 'cap_height': 2,
-            'num_balls': 3, 'ball_radius': 1.8},
-    'M':  {'name': '14.5"',     'body_height': 20, 'body_width': 12,
-            'base_height': 6, 'cap_height': 2,
-            'num_balls': 4, 'ball_radius': 2.4},
-    'L':  {'name': '16.3"',     'body_height': 26, 'body_width': 14,
-            'base_height': 8, 'cap_height': 3,
-            'num_balls': 5, 'ball_radius': 3.0},
-    'XL': {'name': '17"',       'body_height': 30, 'body_width': 16,
-            'base_height': 9, 'cap_height': 3,
-            'num_balls': 6, 'ball_radius': 3.4},
-    'G':  {'name': '27" Grande', 'body_height': 40, 'body_width': 22,
+    # Proportions: glass ~55%, base ~35%, cap ~10% (like real lava lamps)
+    'S':  {'name': '11.5"',     'body_height': 12, 'body_width': 8,
+            'base_height': 7, 'cap_height': 2,
+            'num_balls': 4, 'ball_radius': 1.8},
+    'M':  {'name': '14.5"',     'body_height': 16, 'body_width': 12,
+            'base_height': 10, 'cap_height': 2,
+            'num_balls': 6, 'ball_radius': 2.4},
+    'L':  {'name': '16.3"',     'body_height': 20, 'body_width': 14,
             'base_height': 12, 'cap_height': 3,
-            'num_balls': 8, 'ball_radius': 4.5},
+            'num_balls': 7, 'ball_radius': 3.0},
+    'XL': {'name': '17"',       'body_height': 24, 'body_width': 16,
+            'base_height': 14, 'cap_height': 3,
+            'num_balls': 8, 'ball_radius': 3.4},
+    'G':  {'name': '27" Grande', 'body_height': 30, 'body_width': 22,
+            'base_height': 18, 'cap_height': 4,
+            'num_balls': 10, 'ball_radius': 4.5},
 }
 
 SIZE_ORDER = ['S', 'M', 'L', 'XL', 'G']
@@ -174,19 +243,22 @@ class Ball:
 class Lamp:
 
     def __init__(self, style, body_width, body_height, flow_type,
-                 num_balls, ball_radius, base_height, cap_height):
+                 num_balls, ball_radius, base_height, cap_height,
+                 freestyle=False):
         self.style = style
+        self.freestyle = freestyle
         self.body_width = body_width
         self.body_height = body_height
         self.phys_height = body_height * 2  # half-block vertical resolution
-        self.base_height = base_height
-        self.cap_height = cap_height
+        self.base_height = 0 if freestyle else base_height
+        self.cap_height = 0 if freestyle else cap_height
         self.flow_type = flow_type
         self.params = FLOW_PARAMS[flow_type]
         self.profile = SHAPES[style]
         self.ball_radius = ball_radius
         self.speed_mult = 1.0
         self.paused = False
+        self._noise_time = random.uniform(0, 100)  # random start for variety
 
         # Place balls inside the glass area (not the metallic frame)
         self.balls = []
@@ -198,10 +270,14 @@ class Lamp:
 
     @property
     def total_width(self):
+        if self.freestyle:
+            return self.body_width
         return self.body_width + 2  # 1 col padding each side
 
     @property
     def total_height(self):
+        if self.freestyle:
+            return self.body_height
         return self.cap_height + self.body_height + self.base_height
 
     # ----- Shape queries -----
@@ -248,26 +324,37 @@ class Lamp:
         """Inner glass bounds (1 char inside the metallic frame on each side).
         Lava can only exist within these bounds."""
         left, right = self.get_body_bounds(phys_y)
+        if self.freestyle:
+            return (left, right)
         return (left + 1.0, right - 1.0)
 
     def _base_bounds_at(self, norm_y, body_bottom_width):
         """Base width at normalized y (0=top, 1=bottom), scaled to columns."""
-        ratio = _interpolate_profile(BASE_PROFILE, norm_y)
+        profile = ROCKET_BASE_PROFILE if self.style == 'rocket' else BASE_PROFILE
+        ratio = _interpolate_profile(profile, norm_y)
         half = ratio * body_bottom_width / 2
         center = self.body_width / 2
         return (center - half, center + half)
 
     def _cap_bounds_at(self, norm_y, body_top_width):
-        """Cap width at normalized y (0=top, 1=bottom), scaled to columns."""
-        ratio = _interpolate_profile(CAP_PROFILE, norm_y)
+        """Cap width at normalized y (0=top, 1=bottom), scaled to columns.
+        Returns bounds in LOCAL coords (relative to top_left of body)."""
+        profile = ROCKET_CAP_PROFILE if self.style == 'rocket' else CAP_PROFILE
+        ratio = _interpolate_profile(profile, norm_y)
         half = ratio * body_top_width / 2
-        center = self.body_width / 2
+        center = body_top_width / 2
         return (center - half, center + half)
 
     # ----- Physics -----
 
     def update(self):
         if self.paused:
+            return
+
+        # Liquid flow: just advance noise time, no ball physics
+        if self.flow_type == 'liquid':
+            speed = self.params.get('noise_speed', 0.012)
+            self._noise_time += speed * self.speed_mult
             return
 
         p = self.params
@@ -319,6 +406,8 @@ class Lamp:
     # ----- Metaball field -----
 
     def compute_field(self, px, py):
+        if self.flow_type == 'liquid':
+            return self._compute_noise_field(px, py)
         total = 0.0
         for ball in self.balls:
             dx = px - ball.x
@@ -329,11 +418,24 @@ class Lamp:
             total += (ball.radius * ball.radius) / d_sq
         return total
 
+    def _compute_noise_field(self, px, py):
+        """Perlin noise field for liquid flow. Returns value in metaball-compatible range."""
+        scale = self.params.get('noise_scale', 0.06)
+        octaves = self.params.get('noise_octaves', 3)
+        n = fbm3(px * scale, py * scale * 0.7, self._noise_time, octaves)
+        # Map noise [-1,1] to field [0, ~6] so field_to_level works naturally
+        # noise > 0 becomes lava, noise < 0 becomes liquid
+        return max(0.0, (n + 0.3) * 5.0)
+
+    RIM_THRESHOLD = 0.55
+
     @staticmethod
     def field_to_level(field):
-        """0=liquid, 1-5=lava intensity."""
-        if field < 1.0:
+        """0=liquid, 1-5=lava intensity, 6=rim (glow edge)."""
+        if field < Lamp.RIM_THRESHOLD:
             return 0
+        elif field < 1.0:
+            return 6   # rim: glowing edge around blobs
         elif field < 1.5:
             return 1
         elif field < 2.2:
@@ -363,6 +465,20 @@ class Lamp:
         self._render_base(screen, body_x, body_y + self.body_height,
                           body_bounds[-1], ch)
 
+    def render_freestyle(self, screen, x_off, y_off, ch):
+        """Render fullscreen lava with no lamp frame."""
+        for row in range(self.body_height):
+            py_t = row * 2
+            py_b = row * 2 + 1
+            sy = y_off + row
+            for col in range(self.body_width):
+                px = col + 0.5
+                ft = self.compute_field(px, py_t + 0.5)
+                fb = self.compute_field(px, py_b + 0.5)
+                tl = self.field_to_level(ft)
+                bl = self.field_to_level(fb)
+                ch.draw_cell(screen, sy, x_off + col, tl, bl)
+
     def _render_body(self, screen, bx, by, bounds, ch):
         """Render the glass body: metallic frame border + liquid + lava inside."""
         for row in range(self.body_height):
@@ -377,8 +493,7 @@ class Lamp:
                     ch.draw_base_cell(screen, sy, bx + col, True, True, True)
                 continue
 
-            # -- Metallic frame: left and right border columns --
-            # Left frame with half-block smoothing on outer edge
+            # -- Dark glass frame outline: left and right border columns --
             py_t, py_b = row * 2, row * 2 + 1
             lt, rt = self.get_body_bounds(py_t)
             lb, rb = self.get_body_bounds(py_b)
@@ -386,12 +501,12 @@ class Lamp:
             or_px = outer_right + 0.5
             l_top_in = lt <= ol_px <= rt
             l_bot_in = lb <= ol_px <= rb
-            ch.draw_base_cell(screen, sy, bx + outer_left,
-                              l_top_in, l_bot_in, highlight=True)
+            ch.draw_frame_cell(screen, sy, bx + outer_left,
+                               l_top_in, l_bot_in)
             r_top_in = lt <= or_px <= rt
             r_bot_in = lb <= or_px <= rb
-            ch.draw_base_cell(screen, sy, bx + outer_right,
-                              r_top_in, r_bot_in, highlight=True)
+            ch.draw_frame_cell(screen, sy, bx + outer_right,
+                               r_top_in, r_bot_in)
 
             # -- Glass interior: liquid background + lava metaballs --
             for col in range(inner_left, inner_right + 1):
@@ -430,9 +545,10 @@ class Lamp:
                 py_t = row * 2
                 py_b = row * 2 + 1
                 px = col - top_left + 0.5
-                cap_w_t = _interpolate_profile(CAP_PROFILE,
+                _cp = ROCKET_CAP_PROFILE if self.style == 'rocket' else CAP_PROFILE
+                cap_w_t = _interpolate_profile(_cp,
                             py_t / max(1, self.cap_height * 2)) * body_top_w
-                cap_w_b = _interpolate_profile(CAP_PROFILE,
+                cap_w_b = _interpolate_profile(_cp,
                             py_b / max(1, self.cap_height * 2)) * body_top_w
                 half_t = cap_w_t / 2
                 half_b = cap_w_b / 2
@@ -441,12 +557,17 @@ class Lamp:
                 t_in = (center - half_t) <= px <= (center + half_t)
                 b_in = (center - half_b) <= px <= (center + half_b)
 
-                # Highlight top rows, shadow bottom rows
-                highlight = norm_y < 0.5
-                ch.draw_base_cell(screen, sy, bx + col, t_in, b_in, highlight)
+                # 3-tone shading: bright at dome peak, mid in body, shadow at base
+                if norm_y < 0.3:
+                    shade = 'hi'
+                elif norm_y < 0.7:
+                    shade = 'mid'
+                else:
+                    shade = 'sh'
+                ch.draw_base_cell(screen, sy, bx + col, t_in, b_in, shade=shade)
 
     def _render_base(self, screen, bx, base_y, bot_bounds, ch):
-        """Render the metallic hourglass base below the glass body."""
+        """Render the metallic tapered pedestal below the glass body."""
         bot_left, bot_right = bot_bounds
         body_bot_w = bot_right - bot_left + 1
 
@@ -468,17 +589,30 @@ class Lamp:
                 py_b = row * 2 + 1
                 px = (col - center_offset) + body_bot_w / 2
 
-                bw_t = _interpolate_profile(BASE_PROFILE,
+                _bp = ROCKET_BASE_PROFILE if self.style == 'rocket' else BASE_PROFILE
+                bw_t = _interpolate_profile(_bp,
                             py_t / max(1, self.base_height * 2)) * body_bot_w
-                bw_b = _interpolate_profile(BASE_PROFILE,
+                bw_b = _interpolate_profile(_bp,
                             py_b / max(1, self.base_height * 2)) * body_bot_w
 
                 t_in = (body_bot_w / 2 - bw_t / 2) <= px <= (body_bot_w / 2 + bw_t / 2)
                 b_in = (body_bot_w / 2 - bw_b / 2) <= px <= (body_bot_w / 2 + bw_b / 2)
 
-                # Highlight the wider sections, shadow at waist
-                highlight = norm_y < 0.15 or norm_y > 0.65
-                ch.draw_base_cell(screen, sy, bx + col, t_in, b_in, highlight)
+                # 3-tone metallic shading matching hourglass shape:
+                # hi: top collar + foot lip (widest, catch light)
+                # mid: upper/lower cone slopes
+                # sh: waist (narrowest, deepest shadow)
+                if norm_y < 0.08:
+                    shade = 'hi'    # bright collar where glass sits
+                elif norm_y < 0.30:
+                    shade = 'mid'   # upper cone taper
+                elif norm_y < 0.55:
+                    shade = 'sh'    # waist shadow (deepest)
+                elif norm_y < 0.80:
+                    shade = 'mid'   # lower cone flare
+                else:
+                    shade = 'hi'    # bright foot/lip
+                ch.draw_base_cell(screen, sy, bx + col, t_in, b_in, shade=shade)
 
     # ----- Controls -----
 

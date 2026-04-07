@@ -16,7 +16,8 @@ lavacli/
 │   ├── __main__.py         # Entry point (python -m lavacli)
 │   ├── app.py              # Main curses app loop, layout, input handling
 │   ├── lamp.py             # Lamp class: shapes, metaball physics, rendering
-│   ├── menu.py             # Interactive selection menu
+│   ├── menu.py             # Interactive animated selection menu
+│   ├── noise.py            # Pure-Python 3D Perlin noise + FBM
 │   └── themes.py           # Color themes and ColorHelper class
 ├── README.md
 ├── CHANGELOG.md
@@ -39,55 +40,71 @@ python3 run.py
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Curses setup, animation loop, input dispatch, layout, resize handling |
-| `lamp.py` | Core simulation: shape profiles, `Ball`/`Lamp` classes, metaball field computation, half-block rendering, solid base/cap rendering |
-| `themes.py` | Theme definitions (7 themes with colored liquids), `ColorHelper` for curses color pair management |
-| `menu.py` | Interactive TUI menu |
+| `app.py` | Curses setup, animation loop (~20fps), input dispatch, layout, resize handling, menu-to-lamp flow |
+| `lamp.py` | Core simulation: shape profiles (including rocket), `Ball`/`Lamp` classes, metaball field computation, Perlin noise field, half-block rendering, solid base/cap/frame rendering |
+| `noise.py` | Pure-Python 3D Perlin noise implementation with fractal Brownian motion (FBM) for the Liquid flow type |
+| `themes.py` | 10 theme definitions (classic Lava Library colors, dark bases), `ColorHelper` for curses color pair management, frame/base/cell drawing methods |
+| `menu.py` | Animated TUI menu with lava background, groovy taglines, live theme preview |
 
 ### Rendering Pipeline
 
-Each frame:
+Each frame (~20fps):
 
-1. **Input** - `screen.getch()` with timeout (acts as frame limiter at ~14fps)
-2. **Physics** - `Lamp.update()` advances ball positions, temperature, collisions
+1. **Input** - `screen.getch()` with 50ms timeout (acts as frame limiter)
+2. **Physics** - `Lamp.update()` advances ball positions/temperature/collisions (metaball flows) or noise time (liquid flow)
 3. **Render** - `screen.erase()`, then for each lamp:
-   - **Cap** - Solid metallic dome rendered with half-blocks
-   - **Body** - Compute metaball field at each half-cell, map to lava intensity, draw with colored liquid background
-   - **Base** - Solid metallic hourglass rendered with half-blocks and highlight/shadow
-4. **Refresh** - `noutrefresh()` + `doupdate()` for flicker-free output
+   - **Cap** - Solid metallic collar/nose cone with 3-tone shading and half-blocks
+   - **Body** - Dark frame outline + compute field at each half-cell, map to lava intensity (with rim glow), draw with colored liquid background
+   - **Base** - Solid metallic hourglass/fins with 3-tone highlight/mid/shadow
+4. **HUD** - Controls bar at bottom
+5. **Refresh** - `noutrefresh()` + `doupdate()` for flicker-free output
 
 ### Shape System
 
-Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). All shapes are **conical** (narrow at top, wide at bottom) to match real lava lamp silhouettes. Interpolation uses smoothstep (cubic Hermite) for smooth curves.
+Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). Interpolation uses smoothstep (cubic Hermite) for smooth curves.
 
-The base uses a separate `BASE_PROFILE` defining the hourglass/pedestal shape, and the cap uses `CAP_PROFILE` for the small dome.
+7 styles available:
+
+| Style | Shape | Profile |
+|-------|-------|---------|
+| Classic | Conical (narrow top, wide bottom) | `SHAPES['classic']` |
+| Slim | Straighter taper | `SHAPES['slim']` |
+| Globe | Bulbous, wider at top | `SHAPES['globe']` |
+| Lava | Organic wavy | `SHAPES['lava']` |
+| Diamond | Angular, widest at center | `SHAPES['diamond']` |
+| Rocket | Torpedo/bullet, widest in middle | `SHAPES['rocket']` + `ROCKET_CAP_PROFILE` + `ROCKET_BASE_PROFILE` |
+| Freestyle | Full-width rectangle | `SHAPES['freestyle']` (no frame) |
+
+The base uses `BASE_PROFILE` (hourglass pedestal) or `ROCKET_BASE_PROFILE` (swept fins). The cap uses `CAP_PROFILE` (cylindrical collar) or `ROCKET_CAP_PROFILE` (pointed nose cone).
 
 ### Size System
 
-Five sizes modeled after real lava lamp dimensions:
+Five sizes modeled after real lava lamp dimensions (proportions: glass ~57%, base ~34%, cap ~8%):
 
 | Key | Name | Body (HxW) | Base H | Cap H | Balls | Radius |
 |-----|------|-----------|--------|-------|-------|--------|
-| S | 11.5" | 14x8 | 5 | 2 | 3 | 1.8 |
-| M | 14.5" | 20x12 | 6 | 2 | 4 | 2.4 |
-| L | 16.3" | 26x14 | 8 | 3 | 5 | 3.0 |
-| XL | 17" | 30x16 | 9 | 3 | 6 | 3.4 |
-| G | 27" Grande | 40x22 | 12 | 3 | 8 | 4.5 |
+| S | 11.5" | 12x8 | 7 | 2 | 4 | 1.8 |
+| M | 14.5" | 16x12 | 10 | 2 | 6 | 2.4 |
+| L | 16.3" | 20x14 | 12 | 3 | 7 | 3.0 |
+| XL | 17" | 24x16 | 14 | 3 | 8 | 3.4 |
+| G | 27" Grande | 30x22 | 18 | 4 | 10 | 4.5 |
 
-Sizes auto-scale to fit the terminal. The default is 27" Grande.
+Sizes auto-scale to fit the terminal. Rocket style gets a taller nose cone and fin base.
 
 ### Color Pair Management
 
 `ColorHelper` pre-allocates curses color pairs for all needed foreground/background combinations:
 
-- `(N+1)^2` pairs for lava/liquid combos (N = 5 lava levels + liquid background)
-- Additional pairs for base highlight/shadow, borders, text, UI elements
+- `N^2` pairs for all lava/liquid/rim combos (7 renderable colors: liquid + 5 lava + rim)
+- 9 metallic pairs for 3-tone base shading (highlight/mid/shadow combinations)
+- 3 border pairs for glass frame outline
+- Additional pairs for text, UI, accent elements
 
-Each theme defines a `liquid` color (the colored background visible inside the glass) in addition to the lava gradient colors, creating the authentic colored-liquid look of real lava lamps.
+Each theme defines: `lava` (5 intensity colors), `liquid` (background), `rim` (glow edge), `base_color`/`base_mid`/`base_shadow` (3-tone metallic), and `border` (dark glass outline).
 
 ### Physics Parameters
 
-Each flow type is a dict of physics parameters:
+Each metaball flow type is a dict of physics parameters:
 
 | Parameter | Effect |
 |-----------|--------|
@@ -100,6 +117,18 @@ Each flow type is a dict of physics parameters:
 | `heat_rate` | How fast balls heat up at the bottom |
 | `cool_rate` | How fast balls cool at the top |
 
+The **Liquid** flow type bypasses ball physics entirely and uses Perlin noise parameters: `noise_scale` (spatial frequency), `noise_speed` (time increment per frame), and `noise_octaves` (FBM layers).
+
+### Perlin Noise (noise.py)
+
+Pure-Python implementation of classic 3D Perlin noise with:
+
+- Standard permutation table and gradient function
+- `noise3(x, y, z)` - single-octave 3D Perlin noise, returns [-1, 1]
+- `fbm3(x, y, z, octaves)` - fractal Brownian motion layering multiple octaves for richer detail
+
+Used by `Lamp._compute_noise_field()` which maps noise output to the metaball field range (0-6+) for compatibility with `field_to_level()`.
+
 ## Adding a New Theme
 
 In `themes.py`, add to the `THEMES` dict:
@@ -109,9 +138,11 @@ In `themes.py`, add to the `THEMES` dict:
     'name': 'My Theme',
     'lava': [c1, c2, c3, c4, c5],  # 5 ANSI 256-color codes, dim to bright
     'liquid': 53,                    # colored liquid background
-    'base_color': 249,               # metallic base highlight
-    'base_shadow': 243,              # metallic base shadow
-    'border': 96,                    # subtle glass edge color
+    'rim': 88,                       # glow edge color (between liquid and first lava)
+    'base_color': 240,               # metallic base highlight (dark gray for black base)
+    'base_mid': 237,                 # metallic mid-tone
+    'base_shadow': 234,              # metallic shadow (near black)
+    'border': 16,                    # dark glass frame outline
     'glow': 52,                      # ambient glow color
 },
 ```
@@ -130,7 +161,7 @@ In `lamp.py`, add to the `SHAPES` dict:
 ],
 ```
 
-Then add `'my_shape'` to `SHAPE_ORDER`.
+Then add `'my_shape'` to `SHAPE_ORDER`. For custom cap/base profiles (like rocket), define separate profile arrays and add conditionals in `_cap_bounds_at()` and `_base_bounds_at()`.
 
 ## Adding a New Flow Type
 
@@ -144,7 +175,7 @@ In `lamp.py`, add to the `FLOW_PARAMS` dict:
 },
 ```
 
-Then add `'my_flow'` to `FLOW_ORDER`.
+Then add `'my_flow'` to `FLOW_ORDER`. For non-metaball flows (like Liquid), add special handling in `Lamp.update()` and `Lamp.compute_field()`.
 
 ## Troubleshooting
 
@@ -155,3 +186,4 @@ Then add `'my_flow'` to `FLOW_ORDER`.
 | Unicode boxes instead of smooth blobs | Terminal needs Unicode support; try a modern emulator |
 | Flickering | Try reducing lamp count or using a GPU-accelerated terminal |
 | Import error on Windows | Install `windows-curses`: `pip install windows-curses` |
+| Liquid flow too slow | Reduce terminal size or increase `noise_speed` parameter |

@@ -8,9 +8,20 @@ from .menu import show_menu
 from .themes import ColorHelper, THEME_ORDER
 
 
-def calculate_lamp_dims(term_w, term_h, count, size_pref):
+def calculate_lamp_dims(term_w, term_h, count, size_pref, style='classic'):
     """Calculate lamp body dimensions to fit the terminal."""
     defaults = SIZE_DEFAULTS[size_pref]
+
+    # Freestyle: fill the entire terminal
+    if style == 'freestyle':
+        body_w = term_w
+        body_h = term_h - 1  # leave 1 row for HUD
+        num_balls = max(8, defaults['num_balls'] * 2)
+        # Scale radius for larger area
+        area_scale = (body_w * body_h) / (defaults['body_width'] * defaults['body_height'])
+        ball_r = defaults['ball_radius'] * max(1.0, min(2.0, area_scale ** 0.3))
+        return body_w, body_h, num_balls, ball_r, 0, 0
+
     usable_w = term_w - 2
     usable_h = term_h - 3  # HUD + margin
 
@@ -19,15 +30,21 @@ def calculate_lamp_dims(term_w, term_h, count, size_pref):
     lamp_slot_w = (usable_w - gap * (count + 1)) // max(1, count)
     body_w = max(6, min(defaults['body_width'], lamp_slot_w - 2))
 
-    # Height: fit within terminal (body + cap + base)
-    total_deco = defaults['cap_height'] + defaults['base_height']
-    max_body_h = usable_h - total_deco - 1
-    body_h = max(6, min(defaults['body_height'], max_body_h))
+    # Height: scale ALL parts proportionally to fit terminal
+    # Keep real lamp proportions: body ~55%, base ~35%, cap ~10%
+    total_default = (defaults['body_height'] + defaults['base_height']
+                     + defaults['cap_height'])
+    max_total = usable_h - 1
+    scale = min(1.0, max_total / total_default) if total_default > 0 else 1.0
 
-    # Scale base/cap proportionally
-    scale = body_h / defaults['body_height'] if defaults['body_height'] > 0 else 1.0
-    base_h = max(3, int(defaults['base_height'] * scale))
+    body_h = max(6, int(defaults['body_height'] * scale))
+    base_h = max(4, int(defaults['base_height'] * scale))
     cap_h = max(2, int(defaults['cap_height'] * scale))
+
+    # Rocket style: taller pointed nose cone and fin base
+    if style == 'rocket':
+        cap_h = max(4, int(cap_h * 1.8))
+        base_h = max(5, int(base_h * 1.2))
 
     # Scale ball radius
     w_scale = body_w / defaults['body_width'] if defaults['body_width'] > 0 else 1.0
@@ -74,6 +91,7 @@ def draw_hud(screen, term_h, term_w, lamps, ch, speed):
     paused = lamps[0].paused if lamps else False
     parts = [
         'Q:Quit',
+        'M:Menu',
         '+/-:Speed({:.0f}%)'.format(speed * 100),
         'Space:Resume' if paused else 'Space:Pause',
         'C:Colors',
@@ -98,26 +116,39 @@ def _main(screen):
     curses.curs_set(0)
     screen.keypad(True)
 
-    config = show_menu(screen)
-    if config is None:
-        return
+    while True:
+        config = show_menu(screen)
+        if config is None:
+            return
 
+        if _run_lamp(screen, config):
+            continue  # M pressed: back to menu
+        else:
+            break     # Q pressed: quit
+
+
+def _run_lamp(screen, config):
+    """Run the lamp animation. Returns True to go back to menu, False to quit."""
     ch = ColorHelper(config['theme'])
     ch.setup()
 
+    is_freestyle = config['style'] == 'freestyle'
+    lamp_count = 1 if is_freestyle else config['count']
+
     term_h, term_w = screen.getmaxyx()
     body_w, body_h, num_balls, ball_r, base_h, cap_h = calculate_lamp_dims(
-        term_w, term_h, config['count'], config['size'])
+        term_w, term_h, lamp_count, config['size'], config['style'])
 
     lamps = []
-    for _ in range(config['count']):
+    for _ in range(lamp_count):
         lamps.append(Lamp(config['style'], body_w, body_h,
-                          config['flow'], num_balls, ball_r, base_h, cap_h))
+                          config['flow'], num_balls, ball_r, base_h, cap_h,
+                          freestyle=is_freestyle))
 
-    positions = layout_lamps(lamps, term_w, term_h)
+    positions = layout_lamps(lamps, term_w, term_h) if not is_freestyle else [(0, 0)]
     theme_idx = THEME_ORDER.index(config['theme'])
 
-    frame_ms = 70  # ~14 fps
+    frame_ms = 50  # ~20 fps
     screen.timeout(frame_ms)
 
     while True:
@@ -126,14 +157,16 @@ def _main(screen):
         key = screen.getch()
 
         if key in (ord('q'), ord('Q'), 27):
-            break
+            return False
+        elif key in (ord('m'), ord('M')):
+            return True
         elif key == curses.KEY_RESIZE:
             term_h, term_w = screen.getmaxyx()
             body_w, body_h, _, ball_r, base_h, cap_h = calculate_lamp_dims(
-                term_w, term_h, len(lamps), config['size'])
+                term_w, term_h, len(lamps), config['size'], config['style'])
             for lamp in lamps:
                 lamp.resize(body_w, body_h, base_h, cap_h)
-            positions = layout_lamps(lamps, term_w, term_h)
+            positions = layout_lamps(lamps, term_w, term_h) if not is_freestyle else [(0, 0)]
         elif key == ord(' '):
             for lamp in lamps:
                 lamp.paused = not lamp.paused
@@ -155,11 +188,12 @@ def _main(screen):
         elif key in (ord('r'), ord('R')):
             lamps.clear()
             body_w, body_h, num_balls, ball_r, base_h, cap_h = calculate_lamp_dims(
-                term_w, term_h, config['count'], config['size'])
-            for _ in range(config['count']):
+                term_w, term_h, lamp_count, config['size'], config['style'])
+            for _ in range(lamp_count):
                 lamps.append(Lamp(config['style'], body_w, body_h,
-                                  config['flow'], num_balls, ball_r, base_h, cap_h))
-            positions = layout_lamps(lamps, term_w, term_h)
+                                  config['flow'], num_balls, ball_r, base_h, cap_h,
+                                  freestyle=is_freestyle))
+            positions = layout_lamps(lamps, term_w, term_h) if not is_freestyle else [(0, 0)]
 
         for lamp in lamps:
             lamp.update()
@@ -167,9 +201,13 @@ def _main(screen):
         screen.erase()
 
         for lamp, (x, y) in zip(lamps, positions):
-            lamp.render(screen, x, y, ch)
+            if is_freestyle:
+                lamp.render_freestyle(screen, x, y, ch)
+            else:
+                lamp.render(screen, x, y, ch)
 
-        draw_shelf(screen, positions, lamps, term_w, ch)
+        if not is_freestyle:
+            draw_shelf(screen, positions, lamps, term_w, ch)
         draw_hud(screen, term_h, term_w, lamps, ch,
                  lamps[0].speed_mult if lamps else 1.0)
 
