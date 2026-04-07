@@ -188,11 +188,12 @@ class Lamp:
         self.speed_mult = 1.0
         self.paused = False
 
-        # Place balls mostly at bottom (they'll heat up and rise)
+        # Place balls inside the glass area (not the metallic frame)
         self.balls = []
         for _ in range(num_balls):
-            x = random.uniform(self.body_width * 0.25, self.body_width * 0.75)
-            y = random.uniform(self.phys_height * 0.55, self.phys_height * 0.92)
+            y = random.uniform(self.phys_height * 0.55, self.phys_height * 0.90)
+            gl, gr = self.get_glass_bounds(y)
+            x = random.uniform(gl + 0.5, gr - 0.5)
             self.balls.append(Ball(x, y, ball_radius))
 
     @property
@@ -242,6 +243,12 @@ class Lamp:
                 l, r = m, m
             bounds[i] = (l, r)
         return bounds
+
+    def get_glass_bounds(self, phys_y):
+        """Inner glass bounds (1 char inside the metallic frame on each side).
+        Lava can only exist within these bounds."""
+        left, right = self.get_body_bounds(phys_y)
+        return (left + 1.0, right - 1.0)
 
     def _base_bounds_at(self, norm_y, body_bottom_width):
         """Base width at normalized y (0=top, 1=bottom), scaled to columns."""
@@ -293,9 +300,9 @@ class Lamp:
             ball.x += ball.vx * sm
             ball.y += ball.vy * sm
 
-            # Collide with shape walls
-            left, right = self.get_body_bounds(ball.y)
-            margin = 0.8
+            # Collide with GLASS walls (inside the metallic frame)
+            left, right = self.get_glass_bounds(ball.y)
+            margin = 0.5
             if ball.x < left + margin:
                 ball.x = left + margin
                 ball.vx = abs(ball.vx) * p['bounce']
@@ -357,21 +364,44 @@ class Lamp:
                           body_bounds[-1], ch)
 
     def _render_body(self, screen, bx, by, bounds, ch):
-        """Render the glass body with colored liquid and lava metaballs."""
+        """Render the glass body: metallic frame border + liquid + lava inside."""
         for row in range(self.body_height):
-            left_col, right_col = bounds[row]
+            outer_left, outer_right = bounds[row]
             sy = by + row
+            inner_left = outer_left + 1
+            inner_right = outer_right - 1
 
-            for col in range(left_col, right_col + 1):
-                sx = bx + col
+            # If body is too narrow for glass interior, fill entirely with metal
+            if inner_left > inner_right:
+                for col in range(outer_left, outer_right + 1):
+                    ch.draw_base_cell(screen, sy, bx + col, True, True, True)
+                continue
+
+            # -- Metallic frame: left and right border columns --
+            # Left frame with half-block smoothing on outer edge
+            py_t, py_b = row * 2, row * 2 + 1
+            lt, rt = self.get_body_bounds(py_t)
+            lb, rb = self.get_body_bounds(py_b)
+            ol_px = outer_left + 0.5
+            or_px = outer_right + 0.5
+            l_top_in = lt <= ol_px <= rt
+            l_bot_in = lb <= ol_px <= rb
+            ch.draw_base_cell(screen, sy, bx + outer_left,
+                              l_top_in, l_bot_in, highlight=True)
+            r_top_in = lt <= or_px <= rt
+            r_bot_in = lb <= or_px <= rb
+            ch.draw_base_cell(screen, sy, bx + outer_right,
+                              r_top_in, r_bot_in, highlight=True)
+
+            # -- Glass interior: liquid background + lava metaballs --
+            for col in range(inner_left, inner_right + 1):
                 px = col + 0.5
-                py_t = row * 2
-                py_b = row * 2 + 1
 
-                lt, rt = self.get_body_bounds(py_t)
-                lb, rb = self.get_body_bounds(py_b)
-                top_in = lt <= px <= rt
-                bot_in = lb <= px <= rb
+                # Check glass bounds at each half-row
+                glt, grt = self.get_glass_bounds(py_t)
+                glb, grb = self.get_glass_bounds(py_b)
+                top_in = glt <= px <= grt
+                bot_in = glb <= px <= grb
 
                 ft = self.compute_field(px, py_t + 0.5) if top_in else 0
                 fb = self.compute_field(px, py_b + 0.5) if bot_in else 0
@@ -379,7 +409,7 @@ class Lamp:
                 tl = self.field_to_level(ft) if top_in else -1
                 bl = self.field_to_level(fb) if bot_in else -1
 
-                ch.draw_cell(screen, sy, sx, tl, bl)
+                ch.draw_cell(screen, sy, bx + col, tl, bl)
 
     def _render_cap(self, screen, bx, y_off, top_bounds, ch):
         """Render the small metallic cap above the glass body."""
@@ -453,8 +483,9 @@ class Lamp:
     # ----- Controls -----
 
     def add_ball(self):
-        x = random.uniform(self.body_width * 0.3, self.body_width * 0.7)
         y = random.uniform(self.phys_height * 0.6, self.phys_height * 0.9)
+        gl, gr = self.get_glass_bounds(y)
+        x = random.uniform(gl + 0.5, gr - 0.5)
         self.balls.append(Ball(x, y, self.ball_radius))
 
     def remove_ball(self):
