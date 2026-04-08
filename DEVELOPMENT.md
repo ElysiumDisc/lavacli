@@ -19,7 +19,8 @@ lavacli/
 │   ├── lamp.py                 # Lamp class: shapes, metaball physics, rendering
 │   ├── menu.py                 # Interactive animated selection menu
 │   ├── noise.py                # Pure-Python 3D Perlin noise + FBM
-│   └── themes.py               # Color themes and ColorHelper class
+│   ├── pond.py                 # Koi pond: Fish/Pond classes, skeletal physics, rendering
+│   └── themes.py               # Color themes, koi patterns, and ColorHelper class
 ├── README.md
 ├── CHANGELOG.md
 └── DEVELOPMENT.md
@@ -57,10 +58,11 @@ python3 run.py
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Curses setup, animation loop (~20fps), input dispatch, layout, resize handling, menu-to-lamp flow |
-| `lamp.py` | Core simulation: shape profiles (including rocket), `Ball`/`Lamp` classes, metaball field computation, Perlin noise field, half-block rendering, solid base/cap/frame rendering |
+| `app.py` | Curses setup, animation loop (~20fps), input dispatch, layout, resize handling, menu-to-lamp/pond flow |
+| `lamp.py` | Core lava simulation: shape profiles (including rocket), `Ball`/`Lamp` classes, metaball field computation, Perlin noise field, half-block rendering, solid base/cap/frame rendering |
+| `pond.py` | Koi pond simulation: `Segment`/`Fish`/`Pond` classes, skeletal segment physics, buffer-based fish body rasterization, pectoral fin and tail fin rendering |
 | `noise.py` | Pure-Python 3D Perlin noise implementation with fractal Brownian motion (FBM) for the Liquid flow type |
-| `themes.py` | 10 theme definitions (classic Lava Library colors, dark bases), `ColorHelper` for curses color pair management, frame/base/cell drawing methods |
+| `themes.py` | 10 theme definitions (classic Lava Library colors, dark bases), 6 koi color patterns, `ColorHelper` for curses color pair management, frame/base/cell/pond drawing methods |
 | `menu.py` | Animated TUI menu with lava background, groovy taglines, live theme preview |
 
 ### Rendering Pipeline
@@ -80,7 +82,7 @@ Each frame (~20fps):
 
 Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). Interpolation uses smoothstep (cubic Hermite) for smooth curves.
 
-9 styles available:
+10 styles available:
 
 | Style | Shape | Profile |
 |-------|-------|---------|
@@ -93,6 +95,7 @@ Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 
 | Pear | Bulbous belly, narrow neck | `SHAPES['pear']` |
 | Rocket | Torpedo/bullet, widest in middle | `SHAPES['rocket']` + `ROCKET_CAP_PROFILE` + `ROCKET_BASE_PROFILE` |
 | Freestyle | Full-width rectangle | `SHAPES['freestyle']` (no frame) |
+| Koi Pond | Fullscreen animated fish | `SHAPES['koipond']` (dispatches to `pond.py`) |
 
 Style-specific profiles are selected via `Lamp._get_cap_profile()` and `Lamp._get_base_profile()`. The default base uses `BASE_PROFILE` (hourglass pedestal), rocket uses `ROCKET_BASE_PROFILE` (swept fins), and cylinder uses `CYLINDER_BASE_PROFILE` (simple cone).
 
@@ -148,6 +151,28 @@ Pure-Python implementation of classic 3D Perlin noise with:
 
 Used by `Lamp._compute_noise_field()` which maps noise output to the metaball field range (0-6+) for compatibility with `field_to_level()`.
 
+### Koi Pond System (pond.py)
+
+When the user selects "Koi Pond" style, `app.py` dispatches to `_run_pond()` instead of `_run_lamp()`. The pond system is entirely separate from the lava simulation.
+
+**Fish anatomy (14 segments):**
+
+```
+Seg:  0    1    2    3    4    5    6    7    8    9   10   11   12   13
+      snout head neck shoulder ---- body ----  taper peduncle  tail fin
+Width: 0.6  1.4  2.6  3.8  4.8  5.2  5.0  4.4  3.4  2.2  1.2  0.8  2.4  3.6
+```
+
+- Segments 4-5 have pectoral fin extensions (extra width beyond body edge)
+- Segments 12-13 fan out to form the tail fin
+- Segments 10-11 form the narrow caudal peduncle (creates the classic fish body-to-tail narrowing)
+
+**Movement:** Each fish swims toward a random target point. The head moves along the direction vector with a sinusoidal lateral displacement (period=48 frames) for natural undulation. Each subsequent segment is constrained to stay within `SEGMENT_LENGTH` (3.2 units) of its predecessor, creating a trailing chain effect.
+
+**Rendering:** Buffer-based rasterization into a 2D grid at half-block resolution (`height * 2` physical rows). For each segment, cells within the body width are stamped perpendicular to the local spine direction. Spine interpolation between segments fills gaps. The buffer is then drawn using `ColorHelper.draw_pond_cell()` with the same half-block technique as the lava lamp.
+
+**Color patterns:** 6 koi varieties defined in `themes.py` (`KOI_PATTERNS`), each with per-body-part colors (head, body_main, body_accent, fin, tail). `ColorHelper.setup_pond_colors()` allocates fish-on-water and fish-on-fish color pairs. `_resolve_fish_color()` maps segment index and distance-from-center to the appropriate body part color.
+
 ## Adding a New Theme
 
 In `themes.py`, add to the `THEMES` dict:
@@ -195,6 +220,23 @@ In `lamp.py`, add to the `FLOW_PARAMS` dict:
 ```
 
 Then add `'my_flow'` to `FLOW_ORDER`. For non-metaball flows (like Liquid), add special handling in `Lamp.update()` and `Lamp.compute_field()`.
+
+## Adding a New Koi Pattern
+
+In `themes.py`, add to the `KOI_PATTERNS` dict:
+
+```python
+'my_koi': {
+    'name': 'My Koi',
+    'head': 196,          # ANSI 256-color code for head/snout
+    'body_main': 231,     # primary body color
+    'body_accent': 202,   # secondary body color (patches)
+    'fin': 252,           # pectoral fin color
+    'tail': 248,          # tail fin color
+},
+```
+
+The pattern is automatically available to fish. `_resolve_fish_color()` maps segment positions to body parts: segments 0-1 use `head`, 2-9 alternate `body_main`/`body_accent`, 4-5 outer edges use `fin`, 10-11 use `body_main`, 12-13 use `tail`.
 
 ## Troubleshooting
 

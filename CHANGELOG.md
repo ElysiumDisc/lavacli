@@ -4,6 +4,19 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-04-07
+
+### Added
+
+- **Koi Pond mode** - New fullscreen style with animated, colorized koi fish swimming around the terminal
+- **6 koi color varieties** - Kohaku (orange/white), Sanke (red/white/black), Showa (red/white on black), Tancho (red crown/white), Ogon (solid gold), Asagi (blue-gray/orange)
+- **Skeletal fish physics** - 14-segment body chain with constraint-based movement and sinusoidal swimming undulation, inspired by [cpond](https://github.com/ayuzur/cpond)
+- **Fish body shape** - Pointed snout, bulging belly, pectoral fins, narrow caudal peduncle, and fanning tail fin
+- **Pond color system** - Fish-on-water color pair allocation with per-body-part coloring (head, body patches, fins, tail)
+- New `pond.py` module with `Segment`, `Fish`, and `Pond` classes
+- `B`/`V` keys add/remove fish in Koi Pond mode
+- All 10 themes work with Koi Pond (water color adapts to theme liquid)
+
 ## [1.0.0] - 2026-04-07
 
 ### Added

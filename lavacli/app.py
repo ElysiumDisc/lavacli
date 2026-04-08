@@ -5,6 +5,7 @@ import time
 
 from .lamp import Lamp, SIZE_DEFAULTS
 from .menu import show_menu
+from .pond import Pond
 from .themes import ColorHelper, THEME_ORDER
 
 
@@ -122,7 +123,12 @@ def _main(screen):
         if config is None:
             return
 
-        if _run_lamp(screen, config):
+        if config['style'] == 'koipond':
+            result = _run_pond(screen, config)
+        else:
+            result = _run_lamp(screen, config)
+
+        if result:
             continue  # M pressed: back to menu
         else:
             break     # Q pressed: quit
@@ -215,6 +221,95 @@ def _run_lamp(screen, config):
         if show_hud:
             draw_hud(screen, term_h, term_w, lamps, ch,
                      lamps[0].speed_mult if lamps else 1.0)
+
+        try:
+            screen.noutrefresh()
+            curses.doupdate()
+        except curses.error:
+            pass
+
+        elapsed = time.monotonic() - frame_start
+        remaining = (frame_ms / 1000.0) - elapsed
+        if remaining > 0:
+            time.sleep(remaining * 0.5)
+
+
+def draw_pond_hud(screen, term_h, term_w, pond, ch):
+    """Draw the controls bar for koi pond mode."""
+    hud_y = term_h - 1
+    parts = [
+        'Q:Quit',
+        'M:Menu',
+        '+/-:Speed({:.0f}%)'.format(pond.speed_mult * 100),
+        'Space:Resume' if pond.paused else 'Space:Pause',
+        'C:Colors',
+        'B/V:Fish',
+        'R:Reset',
+        'H:Hide',
+    ]
+    hud = '  '.join(parts)
+    try:
+        screen.addstr(hud_y, max(0, (term_w - len(hud)) // 2),
+                      hud, ch.text_attr | curses.A_DIM)
+    except curses.error:
+        pass
+
+
+def _run_pond(screen, config):
+    """Run the koi pond animation. Returns True to go back to menu, False to quit."""
+    ch = ColorHelper(config['theme'])
+    ch.setup()
+    ch.setup_pond_colors()
+
+    term_h, term_w = screen.getmaxyx()
+    # Map count (1-6) to fish count (3-12)
+    fish_count = max(3, config.get('count', 1) * 2 + 1)
+
+    pond = Pond(term_w, term_h - 1, fish_count)
+    theme_idx = THEME_ORDER.index(config['theme'])
+    show_hud = True
+
+    frame_ms = 50  # ~20 fps
+    screen.timeout(frame_ms)
+
+    while True:
+        frame_start = time.monotonic()
+
+        key = screen.getch()
+
+        if key in (ord('q'), ord('Q'), 27):
+            return False
+        elif key in (ord('m'), ord('M')):
+            return True
+        elif key == curses.KEY_RESIZE:
+            term_h, term_w = screen.getmaxyx()
+            pond.resize(term_w, term_h - 1)
+        elif key == ord(' '):
+            pond.paused = not pond.paused
+        elif key in (ord('+'), ord('=')):
+            pond.speed_mult = min(3.0, pond.speed_mult + 0.25)
+        elif key in (ord('-'), ord('_')):
+            pond.speed_mult = max(0.25, pond.speed_mult - 0.25)
+        elif key in (ord('c'), ord('C')):
+            theme_idx = (theme_idx + 1) % len(THEME_ORDER)
+            ch.change_theme(THEME_ORDER[theme_idx])
+            ch.setup_pond_colors()
+        elif key in (ord('b'), ord('B')):
+            pond.add_fish()
+        elif key in (ord('v'), ord('V')):
+            pond.remove_fish()
+        elif key in (ord('h'), ord('H')):
+            show_hud = not show_hud
+        elif key in (ord('r'), ord('R')):
+            pond = Pond(term_w, term_h - 1, fish_count, pond.speed_mult)
+
+        pond.update()
+
+        screen.erase()
+        pond.render(screen, ch)
+
+        if show_hud:
+            draw_pond_hud(screen, term_h, term_w, pond, ch)
 
         try:
             screen.noutrefresh()

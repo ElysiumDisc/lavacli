@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "lavacli"
-version = "1.0.0"
+version = "1.1.0"
 description = "A beautiful, interactive terminal lava lamp simulator"
 license = "MIT"
 requires-python = ">=3.6"

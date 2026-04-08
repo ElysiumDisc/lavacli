@@ -67,9 +67,12 @@ SHAPES = {
     'freestyle': [  # Full-width rectangle (no lamp frame)
         (0.00, 1.00), (1.00, 1.00),
     ],
+    'koipond': [  # Fullscreen koi pond (no lamp frame)
+        (0.00, 1.00), (1.00, 1.00),
+    ],
 }
 
-SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle']
+SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle', 'koipond']
 
 # Rocket-specific nose cone (pointed tip) and fin base profiles
 ROCKET_CAP_PROFILE = [

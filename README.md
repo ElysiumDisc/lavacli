@@ -35,12 +35,14 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 
 ## Features
 
-- **9 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), and Freestyle (fullscreen lava)
+- **10 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), and Koi Pond (fullscreen animated fish)
 - **10 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome - inspired by classic 1992-2004 Lava Library color codes
 - **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
+- **Koi Pond Mode** - Fullscreen animated koi pond with colorized fish (6 real koi varieties: Kohaku, Sanke, Showa, Tancho, Ogon, Asagi) using skeletal segment-based physics
 - **1-6 Lamps** - Display multiple lava lamps side by side
 - **5 Sizes** - 11.5", 14.5", 16.3", 17", and 27" Grande (default)
 - **Freestyle Mode** - Fullscreen lava with no lamp frame, filling the entire terminal
+- **Koi Pond Mode** - Fullscreen swimming koi fish with beautiful coloring, pectoral fins, and fanning tail fins
 - **Groovy Animated Menu** - Lava background, rotating taglines, live theme preview
 - **Rim/Edge Glow** - Dual-threshold rendering gives lava blobs a glowing halo edge
 - **Resizable** - Lamps adapt when you resize the terminal
@@ -111,8 +113,8 @@ python3 -m lavacli
 | `+` / `=` | Speed up (up to 300%) |
 | `-` | Slow down (down to 25%) |
 | `C` | Cycle color theme |
-| `B` | Add a blob to each lamp |
-| `V` | Remove a blob from each lamp |
+| `B` | Add a blob (or fish in Koi Pond mode) |
+| `V` | Remove a blob (or fish in Koi Pond mode) |
 | `R` | Reset all lamps |
 | `H` | Toggle HUD (show/hide bottom bar) |
 
@@ -129,6 +131,7 @@ python3 -m lavacli
 | Pear | Retro bulbous shape with narrow neck and wide belly |
 | Rocket | Mathmos Telstar rocket ship with pointed nose and swept fins |
 | Freestyle | No lamp frame - fullscreen lava fills the terminal |
+| Koi Pond | Fullscreen animated koi pond with colorized swimming fish |
 
 ## Themes
 
@@ -157,6 +160,23 @@ Inspired by the classic 1992-2004 Lava Library color codes with dark bases:
 | Bouncy | High elasticity, balls bounce energetically |
 | Swirl | Vortex physics spiraling around the center |
 | Liquid | Perlin noise organic flow - smooth, flowing patterns instead of distinct blobs |
+
+## Koi Pond
+
+Select **Koi Pond** from the STYLE menu for a fullscreen animated koi pond. Fish are rendered with the same half-block technique as the lava lamp, but use skeletal segment-based physics inspired by [cpond](https://github.com/ayuzur/cpond).
+
+Each fish has 14 connected body segments with constraint-based movement, sinusoidal swimming undulation, pectoral fins, and a fanning tail fin. Fish are colorized using 6 real koi varieties:
+
+| Variety | Colors |
+|---------|--------|
+| Kohaku | Orange-red markings on white body |
+| Sanke | Red patches on white with black accents |
+| Showa | Red and white on black body |
+| Tancho | Red crown on clean white body |
+| Ogon | Solid metallic gold |
+| Asagi | Blue-gray back with orange belly |
+
+Fish colors adapt to the selected theme's liquid color as the water background. Use `B`/`V` to add/remove fish, and `C` to cycle themes.
 
 ## Sizes
 
