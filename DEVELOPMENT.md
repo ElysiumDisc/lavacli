@@ -243,147 +243,171 @@ In `themes.py`, add to the `KOI_PATTERNS` dict:
 
 The pattern is automatically available to fish. `_resolve_fish_color()` maps segment positions to body parts: segments 0-1 use `head`, 2-9 alternate `body_main`/`body_accent`, 4-5 outer edges use `fin`, 10-11 use `body_main`, 12-13 use `tail`.
 
-## Packaging & Releasing to PyPI
+## Packaging & Releasing
 
-LavaCLI is published to PyPI under the distribution name **`pylavalamp`** (the bare `lavacli` name was already taken). The console script and the GitHub repo are still called `lavacli` — only the PyPI package name differs. All packaging metadata lives in `pyproject.toml`.
+LavaCLI is published to PyPI as **`pylavalamp`** (the bare `lavacli` name was already taken). The GitHub repo and the installed console command are still `lavacli` — only the PyPI distribution name differs.
+
+| What | Name |
+|---|---|
+| GitHub repo | `https://github.com/ElysiumDisc/lavacli` |
+| PyPI distribution | `https://pypi.org/project/pylavalamp/` |
+| Installed console command | `lavacli` (from `[project.scripts]` in `pyproject.toml`) |
+
+All packaging metadata lives in `pyproject.toml`. Build/upload tools (`build`, `twine`) are run through `pipx run` so nothing pollutes your global Python.
 
 ### One-time setup
 
-```bash
-# Make sure pipx is installed (we use `pipx run` for ephemeral build/twine,
-# so nothing has to live in your global Python).
-sudo apt install pipx        # Debian/Ubuntu
-brew install pipx            # macOS
-
-# Create accounts and enable 2FA on:
-#   https://test.pypi.org/account/register/   (TestPyPI - dry runs)
-#   https://pypi.org/account/register/        (real PyPI)
-# Generate an API token for each one (Account Settings -> API tokens).
-# Save them in ~/.pypirc:
-cat > ~/.pypirc <<'EOF'
-[pypi]
-  username = __token__
-  password = pypi-AgEIcHlwaS5vcmcC...    # your real PyPI token
-
-[testpypi]
-  repository = https://test.pypi.org/legacy/
-  username = __token__
-  password = pypi-AgENdGVzdC5weXBpLm9yZwI...   # your TestPyPI token
-EOF
-chmod 600 ~/.pypirc
-```
-
-### Release workflow
-
-The whole release loop is four commands. Run them from the repo root.
-
-#### 1. Bump the version
-
-Edit `pyproject.toml` and bump `version = "X.Y.Z"`. Follow [SemVer](https://semver.org/):
-
-| Change | Bump |
-|---|---|
-| Bug fix only | patch (`1.2.0` -> `1.2.1`) |
-| New feature, backward-compatible | minor (`1.2.0` -> `1.3.0`) |
-| Breaking change | major (`1.2.0` -> `2.0.0`) |
-
-Then add a matching entry to the top of `CHANGELOG.md` describing what changed (Added / Changed / Fixed / Removed).
-
-#### 2. Clean previous build artifacts
-
-Stale files in `dist/` will get re-uploaded by twine and PyPI rejects duplicates, so always wipe them first:
+Only needed the first time you publish from a given machine.
 
 ```bash
-rm -rf dist/ build/ *.egg-info/ pylavalamp.egg-info/
+sudo apt install pipx          # or: brew install pipx
 ```
 
-(`dist/`, `build/`, and `*.egg-info/` are already in `.gitignore`.)
+1. Register at https://pypi.org/account/register/ and enable 2FA (PyPI requires it for uploads).
+2. Create an API token at https://pypi.org/manage/account/token/. For a first-time publish of a new name, scope must be **Entire account** (the project doesn't exist on PyPI yet to scope to). Copy the token — PyPI only shows it once.
+3. Save the token in `~/.pypirc`:
 
-#### 3. Build the wheel and sdist
+   ```bash
+   nano ~/.pypirc
+   ```
+
+   Paste:
+
+   ```ini
+   [pypi]
+     username = __token__
+     password = pypi-PASTE-YOUR-REAL-TOKEN-HERE
+   ```
+
+   Save with **Ctrl+O**, **Enter**, **Ctrl+X**.
+
+4. Lock the file down so no other user on the machine can read it:
+
+   ```bash
+   chmod 600 ~/.pypirc
+   ls -la ~/.pypirc          # should show -rw-------
+   ```
+
+5. To verify the structure without printing the token:
+
+   ```bash
+   grep -v password ~/.pypirc
+   ```
+
+### Code-only update (push to GitHub without releasing a new PyPI version)
+
+If you're just iterating on code, fixing typos, updating docs, etc., and don't want to cut a new PyPI release yet:
 
 ```bash
-pipx run build --sdist --wheel
+git add <files>
+git commit -m "<what changed>"
+git push origin main
 ```
 
-This produces two files in `dist/`:
+That's it. PyPI is unaffected — users still get the last published version with `pipx install pylavalamp`.
 
-- `pylavalamp-X.Y.Z-py3-none-any.whl` — the **wheel**, what `pipx install` downloads. Pre-built, fast install.
-- `pylavalamp-X.Y.Z.tar.gz` — the **sdist** (source distribution), the source code as a tarball. PyPI requires both.
+### Releasing a new version (GitHub + PyPI)
 
-#### 4. Validate the metadata
+The full release loop, every time:
 
-```bash
-pipx run twine check dist/*
-```
+1. **Bump the version** in `pyproject.toml`. SemVer:
 
-Both files should report `PASSED`. If you get warnings about README rendering or missing fields, fix `pyproject.toml` and rebuild before uploading — once a version is on PyPI you cannot replace it, you can only yank it and bump the version again.
+   | Change | Bump | Example |
+   |---|---|---|
+   | Bug fix only | patch | `1.2.0` → `1.2.1` |
+   | New feature, backward-compatible | minor | `1.2.0` → `1.3.0` |
+   | Breaking change | major | `1.2.0` → `2.0.0` |
 
-#### 5. (Recommended) Dry-run on TestPyPI first
+2. **Add a CHANGELOG entry** at the top of `CHANGELOG.md`:
 
-```bash
-pipx run twine upload -r testpypi dist/*
-```
+   ```markdown
+   ## [X.Y.Z] - YYYY-MM-DD
 
-Then verify the listing renders correctly at `https://test.pypi.org/project/pylavalamp/` and try installing it:
+   ### Added
+   - ...
 
-```bash
-pipx install --index-url https://test.pypi.org/simple/ pylavalamp
-lavacli   # smoke-test the installed command
-pipx uninstall pylavalamp
-```
+   ### Changed
+   - ...
 
-#### 6. Upload to real PyPI
+   ### Fixed
+   - ...
+   ```
 
-```bash
-pipx run twine upload dist/*
-```
+   Use only the subsections that apply.
 
-Verify at `https://pypi.org/project/pylavalamp/` and test the real install:
+3. **Clean stale build artifacts.** PyPI rejects duplicate filenames, so old `dist/` files will conflict:
 
-```bash
-pipx install pylavalamp
-lavacli
-```
+   ```bash
+   rm -rf dist/ build/ *.egg-info/
+   ```
 
-#### 7. Tag the release in git
+4. **Build, validate, upload:**
 
-```bash
-git add pyproject.toml CHANGELOG.md
-git commit -m "Release vX.Y.Z"
-git tag -a vX.Y.Z -m "vX.Y.Z"
-git push origin main --tags
-```
+   ```bash
+   pipx run build --sdist --wheel
+   pipx run twine check dist/*
+   pipx run twine upload dist/*
+   ```
 
-### Updating an already-published release
+   `twine check` must report `PASSED` on both files. Then `twine upload` reads `~/.pypirc` automatically and ships to PyPI. The success output ends with `View at: https://pypi.org/project/pylavalamp/X.Y.Z/`.
 
-**You cannot overwrite an existing version on PyPI.** If you discover a bug after uploading `1.2.0`, the workflow is:
+5. **Verify the new version installs:**
 
-1. Fix the bug.
-2. Bump to `1.2.1` in `pyproject.toml`.
-3. Add a CHANGELOG entry.
-4. Repeat steps 2-7 above.
+   ```bash
+   pipx upgrade pylavalamp     # for users who already have it
+   lavacli                     # smoke-test
+   ```
 
-If a release is genuinely broken (e.g. missing files, wrong dependencies), you can [**yank**](https://pypi.org/help/#yanked) it via the PyPI web UI — yanked versions stay installable for anyone who pinned them but no longer satisfy unpinned `pipx install pylavalamp` requests. Yanking is *not* deletion; it's a "use the next version instead" signal.
+6. **Commit and tag in git:**
+
+   ```bash
+   git add pyproject.toml CHANGELOG.md
+   git commit -m "Release vX.Y.Z"
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   git push origin main --tags
+   ```
+
+   The annotated tag is a permanent marker pointing at the exact commit that produced the PyPI release. `git checkout vX.Y.Z` later shows precisely what shipped.
+
+7. **Create the GitHub Release** (optional but tidy):
+   1. Go to https://github.com/ElysiumDisc/lavacli/releases/new
+   2. **Choose a tag**: pick the `vX.Y.Z` you just pushed
+   3. **Release title**: `vX.Y.Z`
+   4. **Description**: paste the matching section from `CHANGELOG.md`
+   5. Click **Publish release**
+
+   GitHub auto-generates a source tarball from the tag and links it under the release.
+
+### Things you can't undo
+
+**You cannot overwrite an existing version on PyPI.** If you upload `1.2.0` and notice a typo, your options are:
+
+- **Bump and re-upload** — fix it, bump to `1.2.1`, repeat the release loop. Your version history will have a dead `1.2.0` in it forever.
+- **Yank the bad version** — at `https://pypi.org/manage/project/pylavalamp/release/X.Y.Z/`, click **Yank**. Yanking is *not* deletion: yanked versions remain installable for anyone who pinned them, but `pipx install pylavalamp` (unpinned) will skip them.
+
+This is why `twine check` and the local wheel test exist — catch problems before the version number is burned.
 
 ### What lives where
 
 | Path | Purpose | Commit? |
 |---|---|---|
 | `pyproject.toml` | Build config + PyPI metadata (name, version, classifiers, URLs) | yes |
-| `dist/` | Built wheel + sdist (output of `build`) | no - gitignored |
-| `build/` | setuptools scratch dir | no - gitignored |
-| `*.egg-info/` | setuptools metadata cache | no - gitignored |
-| `~/.pypirc` | Your PyPI/TestPyPI tokens | **never commit** - lives in $HOME |
+| `CHANGELOG.md` | Per-version release notes | yes |
+| `dist/` | Built wheel + sdist (output of `build`) | no — gitignored |
+| `build/` | setuptools scratch dir | no — gitignored |
+| `*.egg-info/` | setuptools metadata cache | no — gitignored |
+| `~/.pypirc` | Your PyPI token | **never commit** — lives in `$HOME`, `chmod 600` |
 
 ### Troubleshooting packaging
 
-| Symptom | Fix |
-|---|---|
-| `twine check` fails on README rendering | The `readme = "README.md"` field in `pyproject.toml` points at the file PyPI renders. Make sure it's valid Markdown. |
-| `400 File already exists` on upload | You forgot to bump the version, or `dist/` still has the old artifacts. `rm -rf dist/` and rebuild after bumping. |
-| `403 Invalid or non-existent authentication` | Your `~/.pypirc` token is wrong or expired. Generate a new one from your PyPI account settings. |
-| Wheel installs but `lavacli` command not found | Check `[project.scripts] lavacli = "lavacli.app:run"` in `pyproject.toml` — the entry point is what creates the command. |
-| `pip install pylavalamp` works but `pipx` doesn't | `pipx` requires the package to expose at least one console script. The `[project.scripts]` block above satisfies that. |
+| Symptom | Cause | Fix |
+|---|---|---|
+| `400 File already exists` on upload | Forgot to bump the version, or `dist/` still has old artifacts | Bump version in `pyproject.toml`, `rm -rf dist/`, rebuild, re-upload |
+| `403 Invalid or non-existent authentication` | `~/.pypirc` token is wrong, expired, or under the wrong section header | Regenerate the token at https://pypi.org/manage/account/token/ and update `~/.pypirc` |
+| `twine check` fails on README rendering | README has Markdown PyPI's renderer doesn't accept | Render locally to see exactly what fails: `pipx run --spec 'readme_renderer[md]' python -m readme_renderer README.md -o /tmp/out.html` |
+| Wheel installs but `lavacli` command not found | `[project.scripts]` entry missing or wrong | Check `pyproject.toml` has `lavacli = "lavacli.app:run"` under `[project.scripts]` |
+| Classifier rejected | Trove classifier string doesn't exist verbatim | Validate against the official list: `pipx run --spec trove-classifiers python -c "from trove_classifiers import classifiers; print('YOUR_STRING' in classifiers)"` |
+| Build picks up `dist/` or `build/` as a package | Missing `[tool.setuptools] packages = [...]` block | Already set in `pyproject.toml` — don't remove it |
 
 ## Troubleshooting
 

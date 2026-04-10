@@ -1,6 +1,8 @@
 # LavaCLI
 
-A beautiful, interactive terminal lava lamp simulator with metaball physics, Perlin noise flow, half-block rendering, and full customization.
+[![PyPI version](https://img.shields.io/pypi/v/pylavalamp.svg)](https://pypi.org/project/pylavalamp/) [![Python](https://img.shields.io/pypi/pyversions/pylavalamp.svg)](https://pypi.org/project/pylavalamp/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A beautiful, interactive terminal lava lamp simulator with metaball physics, Perlin noise flow, half-block rendering, and a fullscreen koi pond mode. Published on PyPI as **[`pylavalamp`](https://pypi.org/project/pylavalamp/)**.
 
 ```
           ╭─╮
@@ -38,11 +40,10 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 - **10 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), and Koi Pond (fullscreen animated fish with lily pads)
 - **11 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, and Koi Pond - inspired by classic 1992-2004 Lava Library color codes
 - **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
-- **Koi Pond Mode** - Fullscreen animated koi pond with sage-green lily pads scattered across the water and colorized fish (6 real koi varieties: Kohaku, Sanke, Showa, Tancho, Ogon, Asagi) using skeletal segment-based physics
+- **Koi Pond Mode** - Fullscreen animated koi pond with 6-10 sage-green lily pads scattered across the water and colorized fish (6 real koi varieties: Kohaku, Sanke, Showa, Tancho, Ogon, Asagi) using 14-segment skeletal physics, pectoral fins, and fanning tail fins
 - **1-6 Lamps** - Display multiple lava lamps side by side
 - **5 Sizes** - 11.5", 14.5", 16.3", 17", and 27" Grande (default)
 - **Freestyle Mode** - Fullscreen lava with no lamp frame, filling the entire terminal
-- **Koi Pond Mode** - Fullscreen swimming koi fish with beautiful coloring, pectoral fins, and fanning tail fins
 - **Groovy Animated Menu** - Lava background, rotating taglines, live theme preview
 - **Rim/Edge Glow** - Dual-threshold rendering gives lava blobs a glowing halo edge
 - **Resizable** - Lamps adapt when you resize the terminal
@@ -196,7 +197,7 @@ Modeled after real lava lamp dimensions:
 
 ## Requirements
 
-- Python 3.6+
+- Python 3.8+
 - A terminal with:
   - Unicode support (for half-block characters `▀▄█`)
   - 256-color support (for full color themes; falls back to 8 colors)
@@ -230,7 +231,11 @@ Each terminal cell is split into two vertical halves using Unicode half-block ch
 
 ### Solid Base/Cap
 
-The metallic base and cap are rendered as filled shapes using half-block characters with 3-tone highlight/mid/shadow shading. The base uses a classic hourglass profile. The rocket style uses pointed nose cone and swept-back fin profiles.
+The metallic base and cap are rendered as filled shapes using half-block characters with 3-tone highlight/mid/shadow shading. The base uses a classic hourglass profile. The rocket style uses a sharp pointed nose cone, a serrated three-fin base profile, and an extra horizontal chrome highlight stripe down the center column for polished metal curvature.
+
+### Koi Pond
+
+The koi pond is a separate render path from the lava lamp. Each fish is a 14-segment chain with constraint-based segment physics — the head moves toward a random target with a sinusoidal lateral wobble, and the rest of the body trails behind via distance constraints. Lily pads are scattered with Poisson-ish rejection sampling, rasterized as ellipses with a V-notch carved out, and stamped into the render buffer *before* fish so the koi naturally swim over them. The whole scene uses the same half-block buffer rendering as the lava lamp.
 
 ## License
 
