@@ -60,9 +60,9 @@ python3 run.py
 |------|---------|
 | `app.py` | Curses setup, animation loop (~20fps), input dispatch, layout, resize handling, menu-to-lamp/pond flow |
 | `lamp.py` | Core lava simulation: shape profiles (including rocket), `Ball`/`Lamp` classes, metaball field computation, Perlin noise field, half-block rendering, solid base/cap/frame rendering |
-| `pond.py` | Koi pond simulation: `Segment`/`Fish`/`Pond` classes, skeletal segment physics, buffer-based fish body rasterization, pectoral fin and tail fin rendering |
+| `pond.py` | Koi pond simulation: `Segment`/`Fish`/`LilyPad`/`Pond` classes, skeletal segment physics, lily pad rasterization with V-notch + 3-tone shading, buffer-based fish body rasterization, pectoral fin and tail fin rendering |
 | `noise.py` | Pure-Python 3D Perlin noise implementation with fractal Brownian motion (FBM) for the Liquid flow type |
-| `themes.py` | 10 theme definitions (classic Lava Library colors, dark bases), 6 koi color patterns, `ColorHelper` for curses color pair management, frame/base/cell/pond drawing methods |
+| `themes.py` | 11 theme definitions (classic Lava Library colors + Koi Pond, all with dark bases and sage lily pad palette), 6 koi color patterns, `ColorHelper` for curses color pair management, frame/base/cell/pond drawing methods |
 | `menu.py` | Animated TUI menu with lava background, groovy taglines, live theme preview |
 
 ### Rendering Pipeline
@@ -93,7 +93,7 @@ Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 
 | Diamond | Angular, widest at center | `SHAPES['diamond']` |
 | Cylinder | Straight tube, flat sides | `SHAPES['cylinder']` + `CYLINDER_CAP_PROFILE` + `CYLINDER_BASE_PROFILE` |
 | Pear | Bulbous belly, narrow neck | `SHAPES['pear']` |
-| Rocket | Torpedo/bullet, widest in middle | `SHAPES['rocket']` + `ROCKET_CAP_PROFILE` + `ROCKET_BASE_PROFILE` |
+| Rocket | Cylindrical chrome glass column with sharp nose cone, three swept fins (serrated profile), and chrome highlight stripe | `SHAPES['rocket']` + `ROCKET_CAP_PROFILE` + `ROCKET_BASE_PROFILE` + `Lamp._chrome_shade()` |
 | Freestyle | Full-width rectangle | `SHAPES['freestyle']` (no frame) |
 | Koi Pond | Fullscreen animated fish | `SHAPES['koipond']` (dispatches to `pond.py`) |
 
@@ -171,7 +171,9 @@ Width: 0.6  1.4  2.6  3.8  4.8  5.2  5.0  4.4  3.4  2.2  1.2  0.8  2.4  3.6
 
 **Rendering:** Buffer-based rasterization into a 2D grid at half-block resolution (`height * 2` physical rows). For each segment, cells within the body width are stamped perpendicular to the local spine direction. Spine interpolation between segments fills gaps. The buffer is then drawn using `ColorHelper.draw_pond_cell()` with the same half-block technique as the lava lamp.
 
-**Color patterns:** 6 koi varieties defined in `themes.py` (`KOI_PATTERNS`), each with per-body-part colors (head, body_main, body_accent, fin, tail). `ColorHelper.setup_pond_colors()` allocates fish-on-water and fish-on-fish color pairs. `_resolve_fish_color()` maps segment index and distance-from-center to the appropriate body part color.
+**Color patterns:** 6 koi varieties defined in `themes.py` (`KOI_PATTERNS`), each with per-body-part colors (head, body_main, body_accent, fin, tail). `ColorHelper.setup_pond_colors()` allocates fish-on-water, fish-on-fish, and lily-pad-on-water color pairs. `_resolve_fish_color()` maps segment index and distance-from-center to the appropriate body part color, and also recognizes `('pad', shade)` cells (shade in `'rim'`/`'fill'`/`'shadow'`) to return one of the three sage-green pad colors from the active theme.
+
+**Lily pads:** `Pond._init_lily_pads()` scatters 6-10 elliptical pads across the pond using Poisson-ish rejection sampling (rejecting positions too close to existing pads). Pad count and size scale with pond dimensions, and pads are regenerated on terminal resize. Each pad has a center, two radii, and a notch angle. `_stamp_lily_pad()` rasterizes the ellipse, carves out a small angular wedge for the V-notch, and tags cells with `('pad', shade)` where shade is `'rim'` near the edge, `'shadow'` inside a small offset patch, and `'fill'` everywhere else. Pad cells are stamped *before* fish so fish naturally render on top. `_fill_width` and `_fill_fin` explicitly overwrite pad cells when rasterizing fish bodies (otherwise they would IndexError on the 2-tuple pad cells).
 
 ## Adding a New Theme
 
@@ -188,10 +190,13 @@ In `themes.py`, add to the `THEMES` dict:
     'base_shadow': 234,              # metallic shadow (near black)
     'border': 16,                    # dark glass frame outline
     'glow': 52,                      # ambient glow color
+    'lily_pad': 65,                  # sage green for koi pond lily pads
+    'lily_pad_dark': 22,             # darker shadow patch on pads
+    'lily_pad_rim': 107,             # lighter pad rim
 },
 ```
 
-Then add `'my_theme'` to `THEME_ORDER`.
+Then add `'my_theme'` to `THEME_ORDER`. The lily pad colors only apply when the user picks Koi Pond mode; using sage-green across all themes keeps the pond visually recognizable regardless of the lava theme.
 
 ## Adding a New Shape
 
@@ -237,6 +242,148 @@ In `themes.py`, add to the `KOI_PATTERNS` dict:
 ```
 
 The pattern is automatically available to fish. `_resolve_fish_color()` maps segment positions to body parts: segments 0-1 use `head`, 2-9 alternate `body_main`/`body_accent`, 4-5 outer edges use `fin`, 10-11 use `body_main`, 12-13 use `tail`.
+
+## Packaging & Releasing to PyPI
+
+LavaCLI is published to PyPI under the distribution name **`pylavalamp`** (the bare `lavacli` name was already taken). The console script and the GitHub repo are still called `lavacli` — only the PyPI package name differs. All packaging metadata lives in `pyproject.toml`.
+
+### One-time setup
+
+```bash
+# Make sure pipx is installed (we use `pipx run` for ephemeral build/twine,
+# so nothing has to live in your global Python).
+sudo apt install pipx        # Debian/Ubuntu
+brew install pipx            # macOS
+
+# Create accounts and enable 2FA on:
+#   https://test.pypi.org/account/register/   (TestPyPI - dry runs)
+#   https://pypi.org/account/register/        (real PyPI)
+# Generate an API token for each one (Account Settings -> API tokens).
+# Save them in ~/.pypirc:
+cat > ~/.pypirc <<'EOF'
+[pypi]
+  username = __token__
+  password = pypi-AgEIcHlwaS5vcmcC...    # your real PyPI token
+
+[testpypi]
+  repository = https://test.pypi.org/legacy/
+  username = __token__
+  password = pypi-AgENdGVzdC5weXBpLm9yZwI...   # your TestPyPI token
+EOF
+chmod 600 ~/.pypirc
+```
+
+### Release workflow
+
+The whole release loop is four commands. Run them from the repo root.
+
+#### 1. Bump the version
+
+Edit `pyproject.toml` and bump `version = "X.Y.Z"`. Follow [SemVer](https://semver.org/):
+
+| Change | Bump |
+|---|---|
+| Bug fix only | patch (`1.2.0` -> `1.2.1`) |
+| New feature, backward-compatible | minor (`1.2.0` -> `1.3.0`) |
+| Breaking change | major (`1.2.0` -> `2.0.0`) |
+
+Then add a matching entry to the top of `CHANGELOG.md` describing what changed (Added / Changed / Fixed / Removed).
+
+#### 2. Clean previous build artifacts
+
+Stale files in `dist/` will get re-uploaded by twine and PyPI rejects duplicates, so always wipe them first:
+
+```bash
+rm -rf dist/ build/ *.egg-info/ pylavalamp.egg-info/
+```
+
+(`dist/`, `build/`, and `*.egg-info/` are already in `.gitignore`.)
+
+#### 3. Build the wheel and sdist
+
+```bash
+pipx run build --sdist --wheel
+```
+
+This produces two files in `dist/`:
+
+- `pylavalamp-X.Y.Z-py3-none-any.whl` — the **wheel**, what `pipx install` downloads. Pre-built, fast install.
+- `pylavalamp-X.Y.Z.tar.gz` — the **sdist** (source distribution), the source code as a tarball. PyPI requires both.
+
+#### 4. Validate the metadata
+
+```bash
+pipx run twine check dist/*
+```
+
+Both files should report `PASSED`. If you get warnings about README rendering or missing fields, fix `pyproject.toml` and rebuild before uploading — once a version is on PyPI you cannot replace it, you can only yank it and bump the version again.
+
+#### 5. (Recommended) Dry-run on TestPyPI first
+
+```bash
+pipx run twine upload -r testpypi dist/*
+```
+
+Then verify the listing renders correctly at `https://test.pypi.org/project/pylavalamp/` and try installing it:
+
+```bash
+pipx install --index-url https://test.pypi.org/simple/ pylavalamp
+lavacli   # smoke-test the installed command
+pipx uninstall pylavalamp
+```
+
+#### 6. Upload to real PyPI
+
+```bash
+pipx run twine upload dist/*
+```
+
+Verify at `https://pypi.org/project/pylavalamp/` and test the real install:
+
+```bash
+pipx install pylavalamp
+lavacli
+```
+
+#### 7. Tag the release in git
+
+```bash
+git add pyproject.toml CHANGELOG.md
+git commit -m "Release vX.Y.Z"
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin main --tags
+```
+
+### Updating an already-published release
+
+**You cannot overwrite an existing version on PyPI.** If you discover a bug after uploading `1.2.0`, the workflow is:
+
+1. Fix the bug.
+2. Bump to `1.2.1` in `pyproject.toml`.
+3. Add a CHANGELOG entry.
+4. Repeat steps 2-7 above.
+
+If a release is genuinely broken (e.g. missing files, wrong dependencies), you can [**yank**](https://pypi.org/help/#yanked) it via the PyPI web UI — yanked versions stay installable for anyone who pinned them but no longer satisfy unpinned `pipx install pylavalamp` requests. Yanking is *not* deletion; it's a "use the next version instead" signal.
+
+### What lives where
+
+| Path | Purpose | Commit? |
+|---|---|---|
+| `pyproject.toml` | Build config + PyPI metadata (name, version, classifiers, URLs) | yes |
+| `dist/` | Built wheel + sdist (output of `build`) | no - gitignored |
+| `build/` | setuptools scratch dir | no - gitignored |
+| `*.egg-info/` | setuptools metadata cache | no - gitignored |
+| `~/.pypirc` | Your PyPI/TestPyPI tokens | **never commit** - lives in $HOME |
+
+### Troubleshooting packaging
+
+| Symptom | Fix |
+|---|---|
+| `twine check` fails on README rendering | The `readme = "README.md"` field in `pyproject.toml` points at the file PyPI renders. Make sure it's valid Markdown. |
+| `400 File already exists` on upload | You forgot to bump the version, or `dist/` still has the old artifacts. `rm -rf dist/` and rebuild after bumping. |
+| `403 Invalid or non-existent authentication` | Your `~/.pypirc` token is wrong or expired. Generate a new one from your PyPI account settings. |
+| Wheel installs but `lavacli` command not found | Check `[project.scripts] lavacli = "lavacli.app:run"` in `pyproject.toml` — the entry point is what creates the command. |
+| `pip install pylavalamp` works but `pipx` doesn't | `pipx` requires the package to expose at least one console script. The `[project.scripts]` block above satisfies that. |
 
 ## Troubleshooting
 

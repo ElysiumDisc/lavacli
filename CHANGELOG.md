@@ -4,6 +4,24 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] - 2026-04-09
+
+### Added
+
+- **Lily pads in Koi Pond mode** - 6-10 sage-green elliptical lily pads are scattered across the pond at random non-overlapping positions, each with a characteristic V-notch and 3-tone shading (rim/fill/shadow) for a watercolor look. Fish swim *over* the pads
+- **Koi Pond theme** - New 11th color theme with teal water, white-orange koi-friendly lava palette, and sage lily pads — matches the watercolor reference aesthetic
+- **Lily pad palette in every theme** - All themes now include `lily_pad` / `lily_pad_dark` / `lily_pad_rim` slots so pads stay sage-green regardless of which theme is active
+- **`LilyPad` class in `pond.py`** with Poisson-ish placement that scales count and size to pond dimensions, regenerated automatically on terminal resize
+
+### Changed
+
+- **Rocket lamp redesign** - Cylindrical glass column (was torpedo/bullet bulge), sharper and longer pointed nose cone, three distinct swept-back fins suggested by serrated profile valleys, and chrome highlight stripe down the center of the cap and fin base for a polished metal look. Glass column is now framed by chrome columns instead of dark glass border (rocket only). Inspired by the Mathmos rocket reference image
+- **Kohaku/Sanke fish bias** - Pond fish init weights kohaku (white with orange) and sanke higher so the default pond reads as a classic koi pond at a glance
+
+### Fixed
+
+- `Pond._fill_width` and `_fill_fin` now correctly overwrite lily pad cells (previously would have raised IndexError when a fish swam over a pad)
+
 ## [1.1.0] - 2026-04-07
 
 ### Added

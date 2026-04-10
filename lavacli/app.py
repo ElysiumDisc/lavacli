@@ -44,7 +44,7 @@ def calculate_lamp_dims(term_w, term_h, count, size_pref, style='classic'):
 
     # Rocket style: taller pointed nose cone and fin base
     if style == 'rocket':
-        cap_h = max(4, int(cap_h * 1.8))
+        cap_h = max(5, int(cap_h * 2.2))
         base_h = max(5, int(base_h * 1.2))
 
     # Scale ball radius

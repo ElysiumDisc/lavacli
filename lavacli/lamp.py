@@ -56,13 +56,13 @@ SHAPES = {
         (0.80, 0.88), (0.85, 0.85), (0.90, 0.82), (0.95, 0.80),
         (1.00, 0.78),
     ],
-    'rocket': [  # Mathmos Telstar rocket - torpedo/bullet shape, widest in middle
-        (0.00, 0.30), (0.05, 0.42), (0.10, 0.54), (0.15, 0.65),
-        (0.20, 0.74), (0.25, 0.82), (0.30, 0.89), (0.35, 0.94),
-        (0.40, 0.98), (0.45, 1.00), (0.50, 1.00), (0.55, 0.98),
-        (0.60, 0.94), (0.65, 0.89), (0.70, 0.82), (0.75, 0.74),
-        (0.80, 0.65), (0.85, 0.56), (0.90, 0.48), (0.95, 0.42),
-        (1.00, 0.38),
+    'rocket': [  # Mathmos Telstar rocket - cylindrical glass column, gentle tapers
+        (0.00, 0.70), (0.05, 0.82), (0.10, 0.90), (0.15, 0.95),
+        (0.20, 0.98), (0.25, 1.00), (0.30, 1.00), (0.35, 1.00),
+        (0.40, 1.00), (0.45, 1.00), (0.50, 1.00), (0.55, 1.00),
+        (0.60, 1.00), (0.65, 1.00), (0.70, 0.99), (0.75, 0.97),
+        (0.80, 0.93), (0.85, 0.86), (0.90, 0.78), (0.95, 0.70),
+        (1.00, 0.65),
     ],
     'freestyle': [  # Full-width rectangle (no lamp frame)
         (0.00, 1.00), (1.00, 1.00),
@@ -76,35 +76,45 @@ SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear'
 
 # Rocket-specific nose cone (pointed tip) and fin base profiles
 ROCKET_CAP_PROFILE = [
-    (0.00, 0.08),   # sharp pointed nose tip
-    (0.15, 0.15),
-    (0.30, 0.28),
-    (0.45, 0.42),
-    (0.60, 0.58),
-    (0.75, 0.76),
-    (0.90, 0.92),
+    # Sharper, longer nose cone — more rows near the tip so the point
+    # reads at small terminal sizes
+    (0.00, 0.04),   # sharp pointed nose tip
+    (0.08, 0.08),
+    (0.16, 0.13),
+    (0.24, 0.20),
+    (0.34, 0.30),
+    (0.44, 0.42),
+    (0.55, 0.55),
+    (0.66, 0.68),
+    (0.78, 0.82),
+    (0.90, 0.94),
     (1.00, 1.00),   # connects to glass top
 ]
 
 ROCKET_BASE_PROFILE = [
-    # Swept-back rocket fins (scaled to full body_width)
-    # Glass bottom is ~0.38 of body_width, so base top matches that
-    (0.00, 0.40),   # top: cups the narrow glass bottom
-    (0.05, 0.34),
-    (0.10, 0.28),
-    (0.15, 0.22),
-    (0.20, 0.18),
-    (0.28, 0.14),   # narrow rocket body/stem
-    (0.36, 0.12),   # narrowest point
-    (0.44, 0.14),
-    (0.52, 0.18),
-    (0.60, 0.28),   # fins begin flaring outward
-    (0.68, 0.42),
-    (0.76, 0.58),
-    (0.84, 0.74),
-    (0.90, 0.86),
-    (0.95, 0.94),
-    (1.00, 1.00),   # wide fin tips on surface
+    # Three swept-back rocket fins. Profile is 1D so we suggest the fins
+    # by introducing valleys in the lower half — the resulting serrated
+    # silhouette reads as multiple fin tips when shaded.
+    # Glass bottom is ~0.65 of body_width (matches new SHAPES['rocket']),
+    # so the base top matches that.
+    (0.00, 0.66),   # top: cups the wider glass bottom
+    (0.04, 0.58),
+    (0.08, 0.48),
+    (0.12, 0.38),
+    (0.16, 0.28),
+    (0.22, 0.20),
+    (0.30, 0.16),   # narrow rocket stem
+    (0.38, 0.14),   # narrowest point
+    (0.46, 0.16),
+    (0.54, 0.22),   # fins begin flaring outward
+    (0.60, 0.46),   # left fin tip flares out
+    (0.66, 0.34),   # valley between left and center fin
+    (0.72, 0.62),   # center fin tip (tallest of the three)
+    (0.78, 0.40),   # valley between center and right fin
+    (0.84, 0.78),   # right fin tip
+    (0.90, 0.60),   # fall off below the fin tips
+    (0.95, 0.40),
+    (1.00, 0.32),   # narrow ground contact
 ]
 
 # ---------------------------------------------------------------------------
@@ -401,6 +411,34 @@ class Lamp:
         center = body_top_width / 2
         return (center - half, center + half)
 
+    @staticmethod
+    def _chrome_shade(col, body_w, norm_y, vertical_default):
+        """3-tone shading that simulates chrome curvature.
+
+        Cells near the body's vertical center column read brighter
+        (chrome highlight stripe). The horizontal factor is weighted
+        slightly higher than the vertical band so the stripe is
+        actually visible in the body of the cap and base.
+        """
+        if body_w <= 1:
+            return vertical_default
+        dist_from_center = abs(col - (body_w - 1) / 2.0) / max(0.5, (body_w - 1) / 2.0)
+        if dist_from_center < 0.22:
+            horiz = 'hi'
+        elif dist_from_center < 0.55:
+            horiz = 'mid'
+        else:
+            horiz = 'sh'
+        rank = {'hi': 2, 'mid': 1, 'sh': 0}
+        # Weighted blend: horizontal stripe weighted 1.5x so it brightens
+        # the body cells, but vertical band still gates dark waist areas.
+        score = (rank[horiz] * 1.5 + rank[vertical_default]) / 2.5
+        if score >= 1.5:
+            return 'hi'
+        elif score >= 0.5:
+            return 'mid'
+        return 'sh'
+
     # ----- Physics -----
 
     def update(self):
@@ -549,7 +587,10 @@ class Lamp:
                     ch.draw_base_cell(screen, sy, bx + col, True, True, True)
                 continue
 
-            # -- Dark glass frame outline: left and right border columns --
+            # -- Glass frame outline: left and right border columns --
+            # Rocket lamps use chrome (bright metal) framing so the
+            # body reads as a single chrome rocket; other styles use
+            # the dark glass-bead outline.
             py_t, py_b = row * 2, row * 2 + 1
             lt, rt = self.get_body_bounds(py_t)
             lb, rb = self.get_body_bounds(py_b)
@@ -557,12 +598,18 @@ class Lamp:
             or_px = outer_right + 0.5
             l_top_in = lt <= ol_px <= rt
             l_bot_in = lb <= ol_px <= rb
-            ch.draw_frame_cell(screen, sy, bx + outer_left,
-                               l_top_in, l_bot_in)
             r_top_in = lt <= or_px <= rt
             r_bot_in = lb <= or_px <= rb
-            ch.draw_frame_cell(screen, sy, bx + outer_right,
-                               r_top_in, r_bot_in)
+            if self.style == 'rocket':
+                ch.draw_base_cell(screen, sy, bx + outer_left,
+                                  l_top_in, l_bot_in, shade='hi')
+                ch.draw_base_cell(screen, sy, bx + outer_right,
+                                  r_top_in, r_bot_in, shade='hi')
+            else:
+                ch.draw_frame_cell(screen, sy, bx + outer_left,
+                                   l_top_in, l_bot_in)
+                ch.draw_frame_cell(screen, sy, bx + outer_right,
+                                   r_top_in, r_bot_in)
 
             # -- Glass interior: liquid background + lava metaballs --
             for col in range(inner_left, inner_right + 1):
@@ -620,6 +667,13 @@ class Lamp:
                     shade = 'mid'
                 else:
                     shade = 'sh'
+                # Rocket: blend in a horizontal chrome stripe so the
+                # nose cone reads as polished metal, not flat plastic.
+                if self.style == 'rocket':
+                    # col is in absolute body-grid coords; use absolute
+                    # body_width as the reference span
+                    shade = self._chrome_shade(col, self.body_width,
+                                               norm_y, shade)
                 ch.draw_base_cell(screen, sy, bx + col, t_in, b_in, shade=shade)
 
     def _render_base(self, screen, bx, base_y, bot_bounds, ch):
@@ -669,6 +723,11 @@ class Lamp:
                     shade = 'mid'   # lower cone flare
                 else:
                     shade = 'hi'    # bright foot/lip
+                # Rocket: overlay the chrome curvature stripe so the
+                # fins and stem read as polished metal.
+                if self.style == 'rocket':
+                    shade = self._chrome_shade(col, self.body_width,
+                                               norm_y, shade)
                 ch.draw_base_cell(screen, sy, bx + col, t_in, b_in, shade=shade)
 
     # ----- Controls -----

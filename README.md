@@ -35,10 +35,10 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 
 ## Features
 
-- **10 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), and Koi Pond (fullscreen animated fish)
-- **10 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome - inspired by classic 1992-2004 Lava Library color codes
+- **10 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), and Koi Pond (fullscreen animated fish with lily pads)
+- **11 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, and Koi Pond - inspired by classic 1992-2004 Lava Library color codes
 - **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
-- **Koi Pond Mode** - Fullscreen animated koi pond with colorized fish (6 real koi varieties: Kohaku, Sanke, Showa, Tancho, Ogon, Asagi) using skeletal segment-based physics
+- **Koi Pond Mode** - Fullscreen animated koi pond with sage-green lily pads scattered across the water and colorized fish (6 real koi varieties: Kohaku, Sanke, Showa, Tancho, Ogon, Asagi) using skeletal segment-based physics
 - **1-6 Lamps** - Display multiple lava lamps side by side
 - **5 Sizes** - 11.5", 14.5", 16.3", 17", and 27" Grande (default)
 - **Freestyle Mode** - Fullscreen lava with no lamp frame, filling the entire terminal
@@ -51,13 +51,15 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 - **Perlin Noise Flow** - Pure-Python 3D Perlin noise with fractal Brownian motion for smooth organic liquid animation
 - **Heat/Buoyancy Cycle** - Blobs heat at the bottom, rise, cool at the top, and sink back down
 - **Dark Metallic Base** - Hourglass-shaped base with 3-tone shading, matching classic black lava lamp bases
-- **Rocket Style** - Mathmos Telstar-inspired rocket ship with pointed nose cone and swept-back fins
+- **Rocket Style** - Mathmos Telstar-inspired rocket ship with cylindrical chrome glass column, sharp pointed nose cone, three swept-back fins, and a vertical chrome highlight stripe for polished metal feel
 - **Interactive Controls** - Change speed, pause, cycle colors, add/remove blobs, return to menu, toggle HUD
 
 ## Install
 
+The PyPI package is named **`pylavalamp`** (the bare `lavacli` name was already taken on PyPI), but the installed command is still `lavacli`.
+
 ```bash
-pipx install lavacli
+pipx install pylavalamp
 ```
 
 That's it — `lavacli` is now available as a command from anywhere in your terminal.
@@ -65,19 +67,20 @@ That's it — `lavacli` is now available as a command from anywhere in your term
 To install from a local clone instead:
 
 ```bash
-pipx install /path/to/lavacli
+git clone https://github.com/ElysiumDisc/lavacli.git
+pipx install ./lavacli
 ```
 
-For development (editable mode, changes take effect immediately):
+For development (editable mode, source changes take effect immediately):
 
 ```bash
-pipx install -e /path/to/lavacli
+pipx install -e ./lavacli
 ```
 
 ### Uninstall
 
 ```bash
-pipx uninstall lavacli
+pipx uninstall pylavalamp
 ```
 
 ## Quick Start
@@ -129,9 +132,9 @@ python3 -m lavacli
 | Diamond | Angular, widest at center |
 | Cylinder | Straight tube with flat cap and cone base (vintage style) |
 | Pear | Retro bulbous shape with narrow neck and wide belly |
-| Rocket | Mathmos Telstar rocket ship with pointed nose and swept fins |
+| Rocket | Mathmos Telstar rocket ship — cylindrical chrome body, pointed nose, three swept fins, chrome highlight stripe |
 | Freestyle | No lamp frame - fullscreen lava fills the terminal |
-| Koi Pond | Fullscreen animated koi pond with colorized swimming fish |
+| Koi Pond | Fullscreen animated koi pond with sage-green lily pads and colorized swimming fish |
 
 ## Themes
 
@@ -149,6 +152,7 @@ Inspired by the classic 1992-2004 Lava Library color codes with dark bases:
 | Sunset | Red-orange-yellow | Maroon |
 | Psychedelic | Rainbow | Navy |
 | Monochrome | Gray-to-white | Black |
+| Koi Pond | White-salmon-orange koi gradient | Teal water (pairs with lily pads) |
 
 ## Flow Types
 
@@ -165,7 +169,7 @@ Inspired by the classic 1992-2004 Lava Library color codes with dark bases:
 
 Select **Koi Pond** from the STYLE menu for a fullscreen animated koi pond. Fish are rendered with the same half-block technique as the lava lamp, but use skeletal segment-based physics inspired by [cpond](https://github.com/ayuzur/cpond).
 
-Each fish has 14 connected body segments with constraint-based movement, sinusoidal swimming undulation, pectoral fins, and a fanning tail fin. Fish are colorized using 6 real koi varieties:
+Each fish has 14 connected body segments with constraint-based movement, sinusoidal swimming undulation, pectoral fins, and a fanning tail fin. The pond surface is decorated with 6-10 sage-green elliptical lily pads (each with a characteristic V-notch and 3-tone shading) — fish swim freely over and around them, just like a real koi pond. Fish are colorized using 6 real koi varieties:
 
 | Variety | Colors |
 |---------|--------|
@@ -176,7 +180,7 @@ Each fish has 14 connected body segments with constraint-based movement, sinusoi
 | Ogon | Solid metallic gold |
 | Asagi | Blue-gray back with orange belly |
 
-Fish colors adapt to the selected theme's liquid color as the water background. Use `B`/`V` to add/remove fish, and `C` to cycle themes.
+The pond is biased toward Kohaku and Sanke (white-with-orange) so the default scene reads as a classic watercolor koi pond. Pick the **Koi Pond** theme for the closest match to that aesthetic — teal water + sage lily pads + warm koi colors. Lily pads stay sage-green regardless of which theme you cycle to. Use `B`/`V` to add/remove fish, and `C` to cycle themes.
 
 ## Sizes
 

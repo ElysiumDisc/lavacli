@@ -14,6 +14,7 @@ THEMES = {
         'base_shadow': 234,                         # near black
         'border': 16,                               # black outline
         'glow': 52,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'blue_white': {
         'name': 'Blue White',                        # Lava Library #03
@@ -25,6 +26,7 @@ THEMES = {
         'base_shadow': 234,
         'border': 16,
         'glow': 17,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'clear_orange': {
         'name': 'Clear Orange',                      # Lava Library #15
@@ -36,6 +38,7 @@ THEMES = {
         'base_shadow': 234,
         'border': 16,
         'glow': 94,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'purple_haze': {
         'name': 'Purple Haze',                       # Lava Library #09
@@ -47,6 +50,7 @@ THEMES = {
         'base_shadow': 234,
         'border': 16,
         'glow': 53,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'neon_green': {
         'name': 'Neon Green',                        # Lava Library #12
@@ -58,6 +62,7 @@ THEMES = {
         'base_shadow': 234,
         'border': 16,
         'glow': 22,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'blue_purple': {
         'name': 'Blue Purple',                       # Lava Library #22
@@ -69,6 +74,7 @@ THEMES = {
         'base_shadow': 234,
         'border': 16,
         'glow': 18,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'clear_red': {
         'name': 'Clear Red',                         # Lava Library #10
@@ -80,6 +86,7 @@ THEMES = {
         'base_shadow': 234,
         'border': 16,
         'glow': 88,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'sunset': {
         'name': 'Sunset',
@@ -91,6 +98,7 @@ THEMES = {
         'base_shadow': 234,
         'border': 16,
         'glow': 52,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'psychedelic': {
         'name': 'Psychedelic',
@@ -102,6 +110,7 @@ THEMES = {
         'base_shadow': 234,
         'border': 16,
         'glow': 0,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
     'mono': {
         'name': 'Monochrome',
@@ -113,13 +122,27 @@ THEMES = {
         'base_shadow': 243,
         'border': 236,
         'glow': 236,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
+    },
+    'koi_pond': {
+        'name': 'Koi Pond',
+        # Watercolor pond palette: teal water, white-orange koi, sage pads
+        'lava': [231, 224, 209, 202, 196],         # white -> salmon -> orange -> red
+        'liquid': 30,                               # teal water (matches reference image)
+        'rim': 24,                                  # darker teal glow
+        'base_color': 240,
+        'base_mid': 237,
+        'base_shadow': 234,
+        'border': 16,
+        'glow': 23,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
 }
 
 THEME_ORDER = [
     'yellow_red', 'blue_white', 'clear_orange', 'purple_haze',
     'neon_green', 'blue_purple', 'clear_red', 'sunset',
-    'psychedelic', 'mono',
+    'psychedelic', 'mono', 'koi_pond',
 ]
 
 # ---------------------------------------------------------------------------
@@ -471,11 +494,16 @@ class ColorHelper:
         self._water_pair = pair_id
         pair_id += 1
 
-        # Collect all unique fish colors
+        # Collect all unique fish colors (plus lily pad colors)
         fish_colors = set()
         for pattern in KOI_PATTERNS.values():
             for part in ('head', 'body_main', 'body_accent', 'fin', 'tail'):
                 fish_colors.add(pattern[part])
+        # Lily pad colors share the _fish_pairs machinery so they
+        # render through draw_pond_cell with no extra plumbing
+        fish_colors.add(self.theme.get('lily_pad', 65))
+        fish_colors.add(self.theme.get('lily_pad_dark', 22))
+        fish_colors.add(self.theme.get('lily_pad_rim', 107))
 
         self._fish_pairs = {}
         for color in sorted(fish_colors):
@@ -546,11 +574,25 @@ class ColorHelper:
         except curses.error:
             pass
 
-    @staticmethod
-    def _resolve_fish_color(cell):
-        """Map a buffer cell to an ANSI-256 color code, or None for water."""
+    def _resolve_fish_color(self, cell):
+        """Map a buffer cell to an ANSI-256 color code, or None for water.
+
+        Cell shapes:
+            None                       -> water
+            ('pad', shade)             -> lily pad (shade in 'rim'/'fill'/'shadow')
+            (pattern_name, seg_idx, d) -> fish segment
+        """
         if cell is None:
             return None
+        # Lily pad cell
+        if cell[0] == 'pad':
+            shade = cell[1]
+            if shade == 'rim':
+                return self.theme.get('lily_pad_rim', 107)
+            elif shade == 'shadow':
+                return self.theme.get('lily_pad_dark', 22)
+            return self.theme.get('lily_pad', 65)
+        # Fish cell
         pattern_name, seg_idx, dist = cell
         pattern = KOI_PATTERNS[pattern_name]
         # 14-segment body: 0=snout, 1=head, 2-9=body, 10-11=peduncle, 12-13=tail

@@ -40,6 +40,28 @@ class Segment:
         self.y = y
 
 
+class LilyPad:
+    """A static elliptical lily pad with a characteristic V-notch.
+
+    Coordinates are in physical half-block cells (same space as fish
+    segments). The notch is rendered by skipping cells whose angle from
+    the pad center falls inside a small wedge.
+    """
+    __slots__ = ('cx', 'cy', 'rx', 'ry', 'notch_angle', 'notch_half_width',
+                 'shadow_offset')
+
+    def __init__(self, cx, cy, rx, ry, notch_angle):
+        self.cx = cx
+        self.cy = cy
+        self.rx = rx
+        self.ry = ry
+        self.notch_angle = notch_angle
+        self.notch_half_width = 0.32  # radians, ~18 degrees each side
+        # Shadow patch sits slightly off-center for a hand-painted look
+        self.shadow_offset = (random.uniform(-0.25, 0.25),
+                              random.uniform(-0.25, 0.25))
+
+
 class Fish:
     """A single koi fish made of connected segments."""
 
@@ -130,16 +152,72 @@ class Pond:
         self.speed_mult = speed_mult
         self.paused = False
         self.fish_list = []
+        self.lily_pads = []
         self._init_fish(fish_count)
+        self._init_lily_pads()
 
     def _init_fish(self, count):
         from .themes import KOI_PATTERN_NAMES
+        # Bias toward kohaku/sanke (white-with-orange) so the pond
+        # visually matches the watercolor reference image
+        weighted = ['kohaku', 'kohaku', 'kohaku',
+                    'sanke', 'sanke',
+                    'tancho', 'ogon', 'asagi', 'showa']
+        # Drop any weights for patterns that aren't actually defined
+        weighted = [p for p in weighted if p in KOI_PATTERN_NAMES]
         for i in range(count):
             # Spread fish out across the pond
             x = random.uniform(15, max(16, self.width - 15))
             y = random.uniform(15, max(16, self.phys_h - 15))
-            pattern = KOI_PATTERN_NAMES[i % len(KOI_PATTERN_NAMES)]
+            pattern = weighted[i % len(weighted)]
             self.fish_list.append(Fish(x, y, self.width, self.phys_h, pattern))
+
+    def _init_lily_pads(self):
+        """Scatter ~6-10 non-overlapping lily pads across the pond surface.
+
+        Sized proportionally to the pond so they read at any terminal
+        size. Uses simple Poisson-ish rejection sampling: keeps trying
+        random positions until each new pad is far enough from existing
+        ones (or until attempt budget runs out).
+        """
+        self.lily_pads = []
+        if self.width < 20 or self.phys_h < 20:
+            return  # too small for pads to look right
+
+        # Pad count scales with area: ~1 pad per 1100 phys cells, clamped
+        area = self.width * self.phys_h
+        target = max(6, min(10, area // 1100))
+
+        # Pad size scales with the pond's smaller dimension so they
+        # don't dominate tiny terminals
+        smin = min(self.width, self.phys_h)
+        rx_min = max(4, smin * 0.06)
+        rx_max = max(rx_min + 2, smin * 0.13)
+
+        max_attempts = target * 30
+        for _ in range(max_attempts):
+            if len(self.lily_pads) >= target:
+                break
+            rx = random.uniform(rx_min, rx_max)
+            ry = rx * random.uniform(0.45, 0.65)  # flatter ellipses
+            margin_x = rx + 2
+            margin_y = ry + 2
+            if (self.width - 2 * margin_x) < 1 or (self.phys_h - 2 * margin_y) < 1:
+                continue
+            cx = random.uniform(margin_x, self.width - margin_x)
+            cy = random.uniform(margin_y, self.phys_h - margin_y)
+            # Reject if too close to an existing pad
+            ok = True
+            for pad in self.lily_pads:
+                dx = (cx - pad.cx) / max(rx, pad.rx)
+                dy = (cy - pad.cy) / max(ry, pad.ry)
+                if dx * dx + dy * dy < 1.6:  # ~1.25 radii apart
+                    ok = False
+                    break
+            if not ok:
+                continue
+            self.lily_pads.append(
+                LilyPad(cx, cy, rx, ry, random.uniform(0, 2 * math.pi)))
 
     def update(self):
         if self.paused:
@@ -150,8 +228,15 @@ class Pond:
     def render(self, screen, ch):
         """Render the pond using a buffer + half-block output."""
         w, ph = self.width, self.phys_h
-        # Build buffer: None = water, (pattern, seg_idx, dist) = fish
+        # Build buffer:
+        #   None                       -> water
+        #   ('pad', shade)             -> lily pad cell
+        #   (pattern, seg_idx, dist)   -> fish segment cell
         buffer = [[None] * w for _ in range(ph)]
+
+        # Pads first so fish render on top of them
+        for pad in self.lily_pads:
+            self._stamp_lily_pad(buffer, pad, w, ph)
 
         for fish in self.fish_list:
             self._stamp_fish(buffer, fish, w, ph)
@@ -164,6 +249,59 @@ class Pond:
                 top = buffer[py_t][col] if py_t < ph else None
                 bot = buffer[py_b][col] if py_b < ph else None
                 ch.draw_pond_cell(screen, row, col, top, bot)
+
+    def _stamp_lily_pad(self, buffer, pad, w, ph):
+        """Rasterize an elliptical lily pad with V-notch and 3-tone shading."""
+        rx, ry = pad.rx, pad.ry
+        cx, cy = pad.cx, pad.cy
+        # Iterate over the bounding box of the ellipse
+        x0 = max(0, int(math.floor(cx - rx - 1)))
+        x1 = min(w - 1, int(math.ceil(cx + rx + 1)))
+        y0 = max(0, int(math.floor(cy - ry - 1)))
+        y1 = min(ph - 1, int(math.ceil(cy + ry + 1)))
+
+        nh = pad.notch_half_width
+        notch_a = pad.notch_angle
+        sox, soy = pad.shadow_offset
+        # Shadow patch is a small darker region offset from center
+        shadow_rx = rx * 0.45
+        shadow_ry = ry * 0.45
+        shadow_cx = cx + sox * rx * 0.4
+        shadow_cy = cy + soy * ry * 0.4
+
+        for py in range(y0, y1 + 1):
+            dy = (py - cy) / ry
+            for px in range(x0, x1 + 1):
+                dx = (px - cx) / rx
+                d_sq = dx * dx + dy * dy
+                if d_sq > 1.0:
+                    continue
+                # Carve the V-notch: skip cells inside a small angular wedge
+                ang = math.atan2(py - cy, px - cx)
+                # Normalize angle difference to [-pi, pi]
+                diff = (ang - notch_a + math.pi) % (2 * math.pi) - math.pi
+                if abs(diff) < nh and d_sq > 0.05:
+                    continue
+                # Pick shade: rim near edge, shadow inside the small patch,
+                # fill everywhere else
+                if d_sq > 0.78:
+                    shade = 'rim'
+                else:
+                    sdx = (px - shadow_cx) / max(0.1, shadow_rx)
+                    sdy = (py - shadow_cy) / max(0.1, shadow_ry)
+                    if sdx * sdx + sdy * sdy < 1.0:
+                        shade = 'shadow'
+                    else:
+                        shade = 'fill'
+                # Don't overwrite an existing pad cell with a lower-priority
+                # shade (rim should not overwrite shadow, etc.)
+                existing = buffer[py][px]
+                if existing is not None and existing[0] == 'pad':
+                    # Keep the more prominent shade: shadow > fill > rim
+                    rank = {'shadow': 2, 'fill': 1, 'rim': 0}
+                    if rank.get(shade, 0) <= rank.get(existing[1], 0):
+                        continue
+                buffer[py][px] = ('pad', shade)
 
     def _stamp_fish(self, buffer, fish, w, ph):
         """Rasterize a fish body into the buffer with proper fish shape."""
@@ -231,7 +369,9 @@ class Pond:
             if 0 <= px < w and 0 <= py < ph:
                 dist = abs(frac)
                 existing = buffer[py][px]
-                if existing is None or dist < existing[2]:
+                # Always overwrite water and pad cells. For fish-vs-fish,
+                # keep the cell closer to a spine.
+                if existing is None or existing[0] == 'pad' or dist < existing[2]:
                     buffer[py][px] = (pattern, seg_idx, dist)
 
     def _fill_fin(self, buffer, cx, cy, perp_x, perp_y,
@@ -248,8 +388,8 @@ class Pond:
             py = int(cy + perp_y * outer_w * frac + 0.5)
             if 0 <= px < w and 0 <= py < ph:
                 existing = buffer[py][px]
-                # Fins are always outer (dist > 0.6) so color resolves to fin
-                if existing is None:
+                # Fins overwrite water and pads, but defer to other fish bodies
+                if existing is None or existing[0] == 'pad':
                     buffer[py][px] = (pattern, seg_idx, 0.8)
 
     def resize(self, new_width, new_height):
@@ -267,6 +407,8 @@ class Pond:
                                         new_width - 10))
             fish.target_y = max(10, min(fish.target_y * self.phys_h / old_ph,
                                         self.phys_h - 10))
+        # Regenerate lily pads for the new pond dimensions
+        self._init_lily_pads()
 
     def add_fish(self):
         from .themes import KOI_PATTERN_NAMES
