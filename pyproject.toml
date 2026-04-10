@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # console script below is still "lavacli" — only the PyPI package name
 # differs because plain "lavacli" is taken.
 name = "pylavalamp"
-version = "1.2.0"
+version = "1.2.1"
 description = "A beautiful, interactive terminal lava lamp simulator with metaball physics, koi pond mode, and chrome rocket lamps"
 readme = "README.md"
 requires-python = ">=3.8"

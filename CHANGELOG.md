@@ -4,6 +4,20 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.1] - 2026-04-09
+
+### Fixed
+
+- **README on PyPI** - The 1.2.0 wheel was built before the install section was updated for the `pylavalamp` distribution name, so the live PyPI page contradicted itself ("LavaCLI isn't published to PyPI — install it from a local clone" while being read on the PyPI page). 1.2.1 republishes the package with the correct README: `pipx install pylavalamp`, the real GitHub repo URL, and accurate Python version requirement (3.8+, matching `requires-python`)
+- **Stale Python version in README requirements** - was `Python 3.6+`, now matches `pyproject.toml`'s `requires-python = ">=3.8"`
+- **Duplicate "Koi Pond Mode" feature bullet** in README — was listed twice, now consolidated into one richer line
+
+### Added
+
+- **PyPI / Python version / License badges** at the top of the README, reading live data from `https://pypi.org/project/pylavalamp/`
+- **"Koi Pond" subsection in README "How It Works"** explaining 14-segment fish physics and lily pad rasterization
+- **"Solid Base/Cap" README section** now mentions the rocket's serrated three-fin profile and chrome highlight stripe (was still describing the old torpedo rocket)
+
 ## [1.2.0] - 2026-04-09
 
 ### Added
