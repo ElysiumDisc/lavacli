@@ -4,6 +4,32 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.0] - 2026-04-11
+
+### Added
+
+- **Live lamp preview panel in the menu** - When the terminal is at least 72 columns wide, a second bordered box appears next to the menu rendering a real miniature of the currently-selected configuration. Every selection change is reflected in real time — style, flow, theme, and even koi pond mode (complete with lily pads and fish) render live. Previously only theme cycling gave visual feedback
+- **Inline theme palette swatch** - The THEME field now shows 5 colored blocks in the theme's lava palette next to the theme name, so you can compare palettes at a glance without committing
+- **Option position indicator** - Every field now shows `(current/total)` next to its value (e.g. `◂ Classic ▸ (1/10)`) so you know how many options exist in each list
+- **`R` key in the menu** - Randomizes all five fields at once. Great for "surprise me" discovery across 10 styles × 11 themes × 6 flows
+- **`1`–`5` number-key jumps** - Press a digit to jump directly to STYLE, THEME, FLOW, COUNT, or SIZE without j/k-ing through the list
+- **Wrap-around menu navigation** - `UP` from STYLE now wraps to the Launch button, and `DOWN` from Launch wraps back to STYLE. No more dead-ends
+- **CLI flags for direct launch** - `lavacli --style koipond --theme koi_pond --flow swirl --count 3 --size G` skips the menu entirely and drops straight into the animation. All five fields are optional; omitted ones get sensible defaults. Huge for tmux startup scripts, shell aliases, and screensaver integration
+- **`--random` flag** - Randomizes any unspecified fields before launch. Combines with explicit flags (e.g. `--random --style koipond` locks koi pond but randomizes the rest)
+- **`--duration SECONDS` flag** - Run for N seconds then exit cleanly. Built for terminal screensaver use (`lavacli --random --duration 600` etc.)
+- **`--version` flag** - Prints the installed version
+- **`__version__` on the package** - `lavacli.__version__` now exposes the version string in code
+
+### Changed
+
+- **Menu help line rewritten** to reflect the new keys: `↑↓←→ Nav  1-5 Jump  R Rand  Enter  Q Quit`
+- **`Pond.render()` now accepts optional `x_off` / `y_off` offsets** so the pond preview can render into an inset region of the menu screen. Default behavior (no offsets) is unchanged
+- **`app.run()` now accepts an optional `argv` argument** for argparse testing and programmatic invocation; existing `run()` with no args still works as a setuptools `console_scripts` entry point
+
+### Fixed
+
+- **ColorHelper pond pairs not allocated in the menu** - The koi pond preview panel crashed on first draw because `ColorHelper.setup()` doesn't allocate fish/water color pairs (those normally come from `setup_pond_colors()` inside `_run_pond`). The menu now calls `setup_pond_colors()` during init and refreshes it after every theme change, so the preview can render koi pond without `AttributeError: '_water_pair'`
+
 ## [1.2.1] - 2026-04-09
 
 ### Fixed

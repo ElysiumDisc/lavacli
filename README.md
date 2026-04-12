@@ -44,7 +44,8 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 - **1-6 Lamps** - Display multiple lava lamps side by side
 - **5 Sizes** - 11.5", 14.5", 16.3", 17", and 27" Grande (default)
 - **Freestyle Mode** - Fullscreen lava with no lamp frame, filling the entire terminal
-- **Groovy Animated Menu** - Lava background, rotating taglines, live theme preview
+- **Groovy Animated Menu** - Lava background, rotating taglines, live lamp preview panel (every selection renders a real miniature lamp or koi pond next to the menu), inline theme palette swatch, position counters, `R` for randomize, `1`–`5` to jump between fields
+- **Direct-launch CLI flags** - `lavacli --style koipond --theme koi_pond --duration 600` skips the menu entirely — perfect for tmux startup scripts and terminal screensavers
 - **Rim/Edge Glow** - Dual-threshold rendering gives lava blobs a glowing halo edge
 - **Resizable** - Lamps adapt when you resize the terminal
 - **Half-Block Rendering** - Uses Unicode `▀▄█` characters for 2x vertical resolution
@@ -96,14 +97,47 @@ Or run directly without installing:
 python3 -m lavacli
 ```
 
+## CLI Flags (skip the menu)
+
+Pass any lamp-config flag and the menu is skipped — LavaCLI drops straight into the animation. Omitted fields get sensible defaults. Great for tmux startup scripts, shell aliases, and terminal screensavers.
+
+```bash
+# Fullscreen koi pond with the matching theme
+lavacli --style koipond --theme koi_pond
+
+# Three swirling rocket lamps on the Purple Haze theme
+lavacli --style rocket --flow swirl --theme purple_haze --count 3
+
+# Surprise me, but keep it freestyle, for 10 minutes then exit
+lavacli --random --style freestyle --duration 600
+
+# Just randomize everything
+lavacli --random
+```
+
+| Flag | Values | Description |
+|------|--------|-------------|
+| `--style` | `classic`, `slim`, `globe`, `lava`, `diamond`, `cylinder`, `pear`, `rocket`, `freestyle`, `koipond` | Lamp style |
+| `--theme` | `yellow_red`, `blue_white`, `clear_orange`, `purple_haze`, `neon_green`, `blue_purple`, `clear_red`, `sunset`, `psychedelic`, `mono`, `koi_pond` | Color theme |
+| `--flow` | `classic`, `chaotic`, `zen`, `bouncy`, `swirl`, `liquid` | Flow physics |
+| `--count` | `1`–`6` | Number of lamps side by side |
+| `--size` | `S`, `M`, `L`, `XL`, `G` | 11.5" / 14.5" / 16.3" / 17" / 27" Grande |
+| `--random` | — | Randomize any unspecified fields |
+| `--duration SECONDS` | integer | Run for N seconds then exit (screensaver mode) |
+| `--version` | — | Print the installed version |
+
+Run `lavacli --help` for the full list.
+
 ## Controls
 
 ### Menu
 
 | Key | Action |
 |-----|--------|
-| `Up/Down` or `j/k` | Navigate between options |
-| `Left/Right` or `h/l` | Change selection |
+| `Up/Down` or `j/k` | Navigate between fields (wraps at the ends) |
+| `Left/Right` or `h/l` | Cycle the selected field's value |
+| `1`–`5` | Jump directly to STYLE / THEME / FLOW / COUNT / SIZE |
+| `R` | Randomize all five fields |
 | `Enter` | Launch the lava lamp |
 | `Q` / `Esc` | Quit |
 

@@ -225,7 +225,7 @@ class Pond:
         for fish in self.fish_list:
             fish.update(self.speed_mult)
 
-    def render(self, screen, ch):
+    def render(self, screen, ch, x_off=0, y_off=0):
         """Render the pond using a buffer + half-block output."""
         w, ph = self.width, self.phys_h
         # Build buffer:
@@ -248,7 +248,7 @@ class Pond:
             for col in range(w):
                 top = buffer[py_t][col] if py_t < ph else None
                 bot = buffer[py_b][col] if py_b < ph else None
-                ch.draw_pond_cell(screen, row, col, top, bot)
+                ch.draw_pond_cell(screen, y_off + row, x_off + col, top, bot)
 
     def _stamp_lily_pad(self, buffer, pad, w, ph):
         """Rasterize an elliptical lily pad with V-notch and 3-tone shading."""

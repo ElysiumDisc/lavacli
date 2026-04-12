@@ -4,7 +4,9 @@ import math
 import random
 import time
 
-from .lamp import SHAPE_ORDER, FLOW_ORDER, SIZE_ORDER, SIZE_NAMES, Ball
+from .lamp import (SHAPE_ORDER, FLOW_ORDER, SIZE_ORDER, SIZE_NAMES,
+                   Ball, Lamp)
+from .pond import Pond
 from .themes import THEMES, THEME_ORDER, ColorHelper
 
 TITLE = [
@@ -130,6 +132,56 @@ def _render_bg(screen, lava, ch, height, width):
             ch.draw_cell(screen, row, col, tl, bl)
 
 
+# Preview panel: shows a real miniature Lamp/Pond of the current selection.
+PREVIEW_WIDTH = 22  # outer width including border
+PREVIEW_GAP = 2     # gap between menu box and preview box
+
+
+def _build_preview(style, flow, inner_w, inner_h):
+    """Build a small live preview object for the given style/flow.
+
+    Returns a Lamp (for lamp styles, incl. freestyle) or a Pond (koipond).
+    Both expose update() and render(screen, ch, x_off, y_off) after a
+    thin adapter below.
+    """
+    if style == 'koipond':
+        w = max(20, inner_w)
+        h = max(10, inner_h)
+        return Pond(w, h, fish_count=3)
+
+    if style == 'freestyle':
+        return Lamp('freestyle', inner_w, inner_h, flow,
+                    num_balls=5, ball_radius=max(2.5, inner_w * 0.22),
+                    base_height=0, cap_height=0, freestyle=True)
+
+    # Regular lamp: shrink proportions so total_height fits the inner box.
+    body_w = max(6, min(12, inner_w - 2))
+    cap_h = 2
+    base_h = 6
+    body_h = max(6, inner_h - cap_h - base_h - 2)  # leave 2 rows margin
+    ball_r = max(2.0, body_w * 0.28)
+    return Lamp(style, body_w, body_h, flow,
+                num_balls=3, ball_radius=ball_r,
+                base_height=base_h, cap_height=cap_h)
+
+
+def _render_preview(screen, preview, ch, px, py, inner_w, inner_h):
+    """Draw a preview lamp/pond centered inside (px, py, inner_w, inner_h)."""
+    if isinstance(preview, Pond):
+        preview.render(screen, ch, x_off=px, y_off=py)
+        return
+
+    # Lamp
+    if preview.style == 'freestyle':
+        preview.render_freestyle(screen, px, py, ch)
+        return
+
+    # Center the lamp inside the inner box
+    lamp_x = px + max(0, (inner_w - preview.total_width) // 2)
+    lamp_y = py + max(0, (inner_h - preview.total_height) // 2)
+    preview.render(screen, lamp_x, lamp_y, ch)
+
+
 def show_menu(screen):
     """Display the interactive configuration menu. Returns config dict or None."""
     curses.curs_set(0)
@@ -140,9 +192,15 @@ def show_menu(screen):
 
     height, width = screen.getmaxyx()
 
-    # Set up color helper for menu background
+    # Set up color helper for menu background. Also allocate pond color
+    # pairs up-front so the koipond preview can render without crashing.
     ch = ColorHelper(THEME_ORDER[selections[1]])
     ch.setup()
+    ch.setup_pond_colors()
+
+    def _apply_theme(name):
+        ch.change_theme(name)
+        ch.setup_pond_colors()
 
     # Create background lava
     lava = _MenuLava(width, height)
@@ -150,6 +208,10 @@ def show_menu(screen):
     tagline_idx = random.randint(0, len(TAGLINES) - 1)
     frame_count = 0
     screen.timeout(70)
+
+    # Live preview state: rebuilt when style/flow/dimensions change.
+    preview = None
+    preview_key = None
 
     while True:
         screen.erase()
@@ -175,7 +237,16 @@ def show_menu(screen):
 
         menu_width = 48
         menu_height = len(TITLE) + len(FIELDS) * 2 + 12
-        sx = max(0, (width - menu_width) // 2)
+
+        # Preview fits next to the menu only if terminal is wide enough.
+        combined_w = menu_width + PREVIEW_GAP + PREVIEW_WIDTH
+        show_preview = width >= combined_w
+        if show_preview:
+            sx = max(0, (width - combined_w) // 2)
+            preview_sx = sx + menu_width + PREVIEW_GAP
+        else:
+            sx = max(0, (width - menu_width) // 2)
+            preview_sx = None
         sy = max(0, (height - menu_height) // 2)
 
         # Decorative top border
@@ -240,10 +311,11 @@ def show_menu(screen):
             except curses.error:
                 pass
 
-            # Selected value with arrows
+            # Selected value with arrows + position counter
             arrow_l = '\u25c2 '
             arrow_r = ' \u25b8'
-            val_text = arrow_l + opt + arrow_r
+            counter = ' ({}/{})'.format(sel + 1, len(options))
+            val_text = arrow_l + opt + arrow_r + counter
             # Truncate if too wide
             if len(val_text) > max_val_w:
                 val_text = val_text[:max_val_w - 1] + '\u2026'
@@ -256,6 +328,19 @@ def show_menu(screen):
                 screen.addstr(y, value_col, val_text, val_attr)
             except curses.error:
                 pass
+
+            # Theme swatch: 5 colored cells in the theme's lava palette
+            if label == 'THEME':
+                swatch_x = value_col + len(val_text) + 1
+                for level in range(1, 6):
+                    if swatch_x - sx >= menu_width - 1:
+                        break
+                    try:
+                        screen.addstr(y, swatch_x, '\u2588',
+                                      ch.get_pair(level, -1) | curses.A_BOLD)
+                    except curses.error:
+                        pass
+                    swatch_x += 1
 
         # Launch button (centered within the box)
         btn_y = field_y + len(FIELDS) * 2 + 1
@@ -271,12 +356,52 @@ def show_menu(screen):
 
         # Help (centered within the box)
         help_y = btn_y + 3
-        help_text = '\u2191\u2193 Navigate  \u2190\u2192 Change  Enter  Q Quit'
+        help_text = ('\u2191\u2193\u2190\u2192 Nav  1-5 Jump  '
+                     'R Rand  Enter  Q Quit')
         try:
             hx = sx + max(0, (menu_width - len(help_text)) // 2)
             screen.addstr(help_y, hx, help_text, curses.A_DIM)
         except curses.error:
             pass
+
+        # Live preview panel (right of the menu box)
+        if show_preview:
+            preview_inner_w = PREVIEW_WIDTH - 2
+            preview_inner_h = menu_height - 2
+            # Build or rebuild the preview when style/flow/dims change.
+            style = SHAPE_ORDER[selections[0]]
+            flow = FLOW_ORDER[selections[2]]
+            new_key = (style, flow, preview_inner_w, preview_inner_h)
+            if preview is None or preview_key != new_key:
+                preview = _build_preview(style, flow,
+                                         preview_inner_w, preview_inner_h)
+                preview_key = new_key
+
+            # Draw preview box border matching the menu box
+            try:
+                screen.addstr(sy, preview_sx,
+                              '\u2554' + '\u2550' * (PREVIEW_WIDTH - 2)
+                              + '\u2557', ch.accent_attr)
+                screen.addstr(sy + menu_height - 1, preview_sx,
+                              '\u255a' + '\u2550' * (PREVIEW_WIDTH - 2)
+                              + '\u255d', ch.accent_attr)
+                for r in range(1, menu_height - 1):
+                    screen.addstr(sy + r, preview_sx, '\u2551', ch.accent_attr)
+                    screen.addstr(sy + r, preview_sx + PREVIEW_WIDTH - 1,
+                                  '\u2551', ch.accent_attr)
+                # Clear the inner area so background lava doesn't bleed in
+                blank = ' ' * preview_inner_w
+                for r in range(1, menu_height - 1):
+                    screen.addstr(sy + r, preview_sx + 1, blank,
+                                  curses.A_NORMAL)
+            except curses.error:
+                pass
+
+            # Advance physics and render the preview contents
+            preview.update()
+            _render_preview(screen, preview, ch,
+                            preview_sx + 1, sy + 1,
+                            preview_inner_w, preview_inner_h)
 
         screen.refresh()
 
@@ -287,22 +412,28 @@ def show_menu(screen):
         elif key == ord('q') or key == ord('Q') or key == 27:
             return None
         elif key == curses.KEY_UP or key == ord('k'):
-            current_field = max(0, current_field - 1)
+            current_field = (current_field - 1) % (len(FIELDS) + 1)
         elif key == curses.KEY_DOWN or key == ord('j'):
-            current_field = min(len(FIELDS), current_field + 1)
+            current_field = (current_field + 1) % (len(FIELDS) + 1)
+        elif ord('1') <= key <= ord('5'):
+            current_field = key - ord('1')
+        elif key == ord('r') or key == ord('R'):
+            for i, (_, options) in enumerate(FIELDS):
+                selections[i] = random.randrange(len(options))
+            _apply_theme(THEME_ORDER[selections[1]])
         elif key == curses.KEY_LEFT or key == ord('h'):
             if current_field < len(FIELDS):
                 n = len(FIELDS[current_field][1])
                 selections[current_field] = (selections[current_field] - 1) % n
                 # Live theme preview: re-init colors when theme changes
                 if current_field == 1:
-                    ch.change_theme(THEME_ORDER[selections[1]])
+                    _apply_theme(THEME_ORDER[selections[1]])
         elif key == curses.KEY_RIGHT or key == ord('l'):
             if current_field < len(FIELDS):
                 n = len(FIELDS[current_field][1])
                 selections[current_field] = (selections[current_field] + 1) % n
                 if current_field == 1:
-                    ch.change_theme(THEME_ORDER[selections[1]])
+                    _apply_theme(THEME_ORDER[selections[1]])
         elif key in (ord('\n'), curses.KEY_ENTER, 10):
             return {
                 'style': SHAPE_ORDER[selections[0]],
@@ -314,3 +445,4 @@ def show_menu(screen):
         elif key == curses.KEY_RESIZE:
             height, width = screen.getmaxyx()
             lava.resize(width, height)
+            preview = None  # force rebuild at new dimensions

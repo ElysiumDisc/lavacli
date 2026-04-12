@@ -58,12 +58,12 @@ python3 run.py
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Curses setup, animation loop (~20fps), input dispatch, layout, resize handling, menu-to-lamp/pond flow |
+| `app.py` | argparse CLI layer, curses setup, animation loop (~20fps), input dispatch, layout, resize handling, menu-to-lamp/pond flow, `--duration` deadline handling for screensaver mode |
 | `lamp.py` | Core lava simulation: shape profiles (including rocket), `Ball`/`Lamp` classes, metaball field computation, Perlin noise field, half-block rendering, solid base/cap/frame rendering |
 | `pond.py` | Koi pond simulation: `Segment`/`Fish`/`LilyPad`/`Pond` classes, skeletal segment physics, lily pad rasterization with V-notch + 3-tone shading, buffer-based fish body rasterization, pectoral fin and tail fin rendering |
 | `noise.py` | Pure-Python 3D Perlin noise implementation with fractal Brownian motion (FBM) for the Liquid flow type |
 | `themes.py` | 11 theme definitions (classic Lava Library colors + Koi Pond, all with dark bases and sage lily pad palette), 6 koi color patterns, `ColorHelper` for curses color pair management, frame/base/cell/pond drawing methods |
-| `menu.py` | Animated TUI menu with lava background, groovy taglines, live theme preview |
+| `menu.py` | Animated TUI menu with lava background, groovy taglines, and a live preview panel (`_build_preview` / `_render_preview`) that instantiates a real miniature `Lamp` or `Pond` for the currently-selected configuration. Includes inline theme palette swatch, `(n/total)` position counters, `R` randomize, `1`–`5` field jumps, and wrap-around navigation |
 
 ### Rendering Pipeline
 

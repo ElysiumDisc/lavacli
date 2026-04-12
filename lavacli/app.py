@@ -1,12 +1,96 @@
 """Main application loop for LavaCLI."""
+import argparse
 import curses
 import locale
+import random
 import time
 
-from .lamp import Lamp, SIZE_DEFAULTS
+from . import __version__
+from .lamp import Lamp, SHAPE_ORDER, FLOW_ORDER, SIZE_ORDER, SIZE_DEFAULTS
 from .menu import show_menu
 from .pond import Pond
 from .themes import ColorHelper, THEME_ORDER
+
+
+def _positive_int_range(lo, hi):
+    def parse(value):
+        try:
+            n = int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                '{!r} is not an integer'.format(value))
+        if not (lo <= n <= hi):
+            raise argparse.ArgumentTypeError(
+                '{} out of range [{}, {}]'.format(n, lo, hi))
+        return n
+    return parse
+
+
+def _build_parser():
+    p = argparse.ArgumentParser(
+        prog='lavacli',
+        description='A beautiful, interactive terminal lava lamp simulator.')
+    p.add_argument('--version', action='version',
+                   version='lavacli {}'.format(__version__))
+    p.add_argument('--style', choices=SHAPE_ORDER,
+                   help='Lamp style (skips menu)')
+    p.add_argument('--theme', choices=THEME_ORDER,
+                   help='Color theme (skips menu)')
+    p.add_argument('--flow', choices=FLOW_ORDER,
+                   help='Flow type (skips menu)')
+    p.add_argument('--count', type=_positive_int_range(1, 6),
+                   help='Number of lamps, 1-6 (skips menu)')
+    p.add_argument('--size', choices=SIZE_ORDER,
+                   help='Lamp size preset (skips menu)')
+    p.add_argument('--random', action='store_true',
+                   help='Randomize all unspecified fields (skips menu)')
+    p.add_argument('--duration', type=_positive_int_range(1, 86400),
+                   metavar='SECONDS',
+                   help='Run for N seconds then exit (for screensaver use)')
+    return p
+
+
+def _config_from_args(args):
+    """Build a menu-style config dict from CLI args.
+
+    Returns None if no direct-launch flags were set (menu should run).
+    """
+    direct_flags = (args.style, args.theme, args.flow,
+                    args.count, args.size)
+    if not any(f is not None for f in direct_flags) and not args.random:
+        return None
+
+    if args.random:
+        style = random.choice(SHAPE_ORDER)
+        theme = random.choice(THEME_ORDER)
+        flow = random.choice(FLOW_ORDER)
+        count = random.randint(1, 6)
+        size = random.choice(SIZE_ORDER)
+    else:
+        style = 'classic'
+        theme = THEME_ORDER[0]
+        flow = 'classic'
+        count = 1
+        size = 'G'
+
+    if args.style is not None:
+        style = args.style
+    if args.theme is not None:
+        theme = args.theme
+    if args.flow is not None:
+        flow = args.flow
+    if args.count is not None:
+        count = args.count
+    if args.size is not None:
+        size = args.size
+
+    return {
+        'style': style,
+        'theme': theme,
+        'flow': flow,
+        'count': count,
+        'size': size,
+    }
 
 
 def calculate_lamp_dims(term_w, term_h, count, size_pref, style='classic'):
@@ -108,15 +192,29 @@ def draw_hud(screen, term_h, term_w, lamps, ch, speed):
         pass
 
 
-def run():
+def run(argv=None):
     """Entry point for the lava lamp application."""
     locale.setlocale(locale.LC_ALL, '')
-    curses.wrapper(_main)
+    args = _build_parser().parse_args(argv)
+    curses.wrapper(_main, args)
 
 
-def _main(screen):
+def _main(screen, args):
     curses.curs_set(0)
     screen.keypad(True)
+
+    direct_config = _config_from_args(args)
+    deadline = None
+    if args.duration is not None:
+        deadline = time.monotonic() + args.duration
+
+    # Direct-launch mode: skip menu entirely, run once, exit.
+    if direct_config is not None:
+        if direct_config['style'] == 'koipond':
+            _run_pond(screen, direct_config, deadline=deadline)
+        else:
+            _run_lamp(screen, direct_config, deadline=deadline)
+        return
 
     while True:
         config = show_menu(screen)
@@ -124,9 +222,9 @@ def _main(screen):
             return
 
         if config['style'] == 'koipond':
-            result = _run_pond(screen, config)
+            result = _run_pond(screen, config, deadline=deadline)
         else:
-            result = _run_lamp(screen, config)
+            result = _run_lamp(screen, config, deadline=deadline)
 
         if result:
             continue  # M pressed: back to menu
@@ -134,7 +232,7 @@ def _main(screen):
             break     # Q pressed: quit
 
 
-def _run_lamp(screen, config):
+def _run_lamp(screen, config, deadline=None):
     """Run the lamp animation. Returns True to go back to menu, False to quit."""
     ch = ColorHelper(config['theme'])
     ch.setup()
@@ -160,6 +258,9 @@ def _run_lamp(screen, config):
     screen.timeout(frame_ms)
 
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            return False
+
         frame_start = time.monotonic()
 
         key = screen.getch()
@@ -255,7 +356,7 @@ def draw_pond_hud(screen, term_h, term_w, pond, ch):
         pass
 
 
-def _run_pond(screen, config):
+def _run_pond(screen, config, deadline=None):
     """Run the koi pond animation. Returns True to go back to menu, False to quit."""
     ch = ColorHelper(config['theme'])
     ch.setup()
@@ -273,6 +374,9 @@ def _run_pond(screen, config):
     screen.timeout(frame_ms)
 
     while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            return False
+
         frame_start = time.monotonic()
 
         key = screen.getch()
