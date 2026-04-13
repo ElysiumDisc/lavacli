@@ -6,6 +6,7 @@ import random
 import time
 
 from . import __version__
+from .donut import Donut
 from .lamp import Lamp, SHAPE_ORDER, FLOW_ORDER, SIZE_ORDER, SIZE_DEFAULTS
 from .menu import show_menu
 from .pond import Pond
@@ -221,6 +222,8 @@ def _main(screen, args):
     if direct_config is not None:
         if direct_config['style'] == 'koipond':
             _run_pond(screen, direct_config, deadline=deadline)
+        elif direct_config['style'] == 'donut':
+            _run_donut(screen, direct_config, deadline=deadline)
         else:
             _run_lamp(screen, direct_config, deadline=deadline)
         return
@@ -232,6 +235,8 @@ def _main(screen, args):
 
         if config['style'] == 'koipond':
             result = _run_pond(screen, config, deadline=deadline)
+        elif config['style'] == 'donut':
+            result = _run_donut(screen, config, deadline=deadline)
         else:
             result = _run_lamp(screen, config, deadline=deadline)
 
@@ -344,6 +349,98 @@ def _run_lamp(screen, config, deadline=None):
                      lamps[0].speed_mult if lamps else 1.0,
                      trails=bool(lamps and lamps[0].trails),
                      bicolor=bool(bicolor_theme))
+
+        try:
+            screen.noutrefresh()
+            curses.doupdate()
+        except curses.error:
+            pass
+
+        elapsed = time.monotonic() - frame_start
+        remaining = (frame_ms / 1000.0) - elapsed
+        if remaining > 0:
+            time.sleep(remaining * 0.5)
+
+
+def draw_donut_hud(screen, term_h, term_w, donut, ch):
+    """Draw the controls bar for donut mode."""
+    hud_y = term_h - 1
+    parts = [
+        'Q:Quit',
+        'M:Menu',
+        '+/-:Speed({:.0f}%)'.format(donut.speed_mult * 100),
+        'Space:Resume' if donut.paused else 'Space:Pause',
+        'C:Colors',
+        'B/V:Sprinkles',
+        'R:Reset',
+        'H:Hide',
+    ]
+    hud = '  '.join(parts)
+    try:
+        screen.addstr(hud_y, max(0, (term_w - len(hud)) // 2),
+                      hud, ch.text_attr | curses.A_DIM)
+    except curses.error:
+        pass
+
+
+def _run_donut(screen, config, deadline=None):
+    """Run the spinning donut animation. Returns True to go back to menu, False to quit."""
+    ch = ColorHelper(config['theme'])
+    ch.setup()
+    ch.setup_donut_colors()
+    bicolor_theme = config.get('bicolor')
+    if bicolor_theme:
+        ch.set_secondary_theme(bicolor_theme)
+
+    term_h, term_w = screen.getmaxyx()
+    donut = Donut(term_w, term_h - 1)
+    theme_idx = THEME_ORDER.index(config['theme'])
+    show_hud = True
+
+    frame_ms = 50  # ~20 fps
+    screen.timeout(frame_ms)
+
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            return False
+
+        frame_start = time.monotonic()
+
+        key = screen.getch()
+
+        if key in (ord('q'), ord('Q'), 27):
+            return False
+        elif key in (ord('m'), ord('M')):
+            return True
+        elif key == curses.KEY_RESIZE:
+            term_h, term_w = screen.getmaxyx()
+            donut.resize(term_w, term_h - 1)
+        elif key == ord(' '):
+            donut.paused = not donut.paused
+        elif key in (ord('+'), ord('=')):
+            donut.speed_mult = min(3.0, donut.speed_mult + 0.25)
+        elif key in (ord('-'), ord('_')):
+            donut.speed_mult = max(0.25, donut.speed_mult - 0.25)
+        elif key in (ord('c'), ord('C')):
+            theme_idx = (theme_idx + 1) % len(THEME_ORDER)
+            ch.change_theme(THEME_ORDER[theme_idx])
+            ch.setup_donut_colors()
+        elif key in (ord('b'), ord('B')):
+            donut.next_sprinkle()
+        elif key in (ord('v'), ord('V')):
+            donut.prev_sprinkle()
+        elif key in (ord('h'), ord('H')):
+            show_hud = not show_hud
+        elif key in (ord('r'), ord('R')):
+            donut = Donut(term_w, term_h - 1, donut.speed_mult)
+
+        donut.update()
+
+        screen.erase()
+        donut.render(screen, ch)
+
+        if show_hud:
+            draw_donut_hud(screen, term_h, term_w, donut, ch)
 
         try:
             screen.noutrefresh()

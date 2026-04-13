@@ -699,6 +699,44 @@ class ColorHelper:
                 return pattern['body_accent']
             return pattern['body_main']
 
+    def setup_donut_colors(self):
+        """Pre-allocate curses pairs for every theme's lava palette against
+        the current primary liquid color, plus solid (c, c) pairs. Keeps
+        donut sprinkles from silently falling back to the (liquid, liquid)
+        pair when lazy allocation can't get a new slot mid-render.
+        """
+        if not self._has_256:
+            return
+        liquid = self.theme['liquid']
+        colors = set()
+        for theme in THEMES.values():
+            for c in theme['lava']:
+                colors.add(c)
+        for c in sorted(colors):
+            self._lazy_color_pair(c, liquid)
+            self._lazy_color_pair(c, c)
+
+    def draw_colored_cell(self, screen, row, col, top_color, bot_color):
+        """Draw a half-block pair with arbitrary ANSI-256 colors.
+
+        top_color/bot_color: an ANSI color code, or None to use the current
+        theme's liquid color as the background fill. Used by the donut
+        renderer so each sprinkle can come from a different theme palette
+        while the torus sits on the primary theme's liquid backdrop.
+        """
+        liquid = self.theme['liquid']
+        tc = liquid if top_color is None else top_color
+        bc = liquid if bot_color is None else bot_color
+        try:
+            if tc == bc:
+                screen.addstr(row, col, '\u2588',
+                              self._lazy_color_pair(tc, tc))
+            else:
+                screen.addstr(row, col, '\u2580',
+                              self._lazy_color_pair(tc, bc))
+        except curses.error:
+            pass
+
     def change_theme(self, theme_name):
         """Switch to a different theme (keeping secondary bicolor theme if set)."""
         self.theme_name = theme_name

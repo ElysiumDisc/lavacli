@@ -2,7 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/pylavalamp.svg)](https://pypi.org/project/pylavalamp/) [![Python](https://img.shields.io/pypi/pyversions/pylavalamp.svg)](https://pypi.org/project/pylavalamp/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A beautiful, interactive terminal lava lamp simulator with metaball physics, Perlin noise flow, half-block rendering, and a fullscreen koi pond mode. Published on PyPI as **[`pylavalamp`](https://pypi.org/project/pylavalamp/)**.
+A beautiful, interactive terminal lava lamp simulator with metaball physics, Perlin noise flow, half-block rendering, a fullscreen koi pond, and a theme-cycling spinning ASCII donut. Published on PyPI as **[`pylavalamp`](https://pypi.org/project/pylavalamp/)**.
 
 ```
           ╭─╮
@@ -37,12 +37,13 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 
 ## Features
 
-- **11 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), Koi Pond (fullscreen animated fish with lily pads), and Fireplace (fullscreen rising embers)
+- **12 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), Koi Pond (fullscreen animated fish with lily pads), Fireplace (fullscreen rising embers), and Donut (fullscreen spinning ASCII donut with theme-cycling sprinkles)
 - **12 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, Koi Pond, and Aurora - inspired by classic 1992-2004 Lava Library color codes
 - **Bi-color Lava** - Mix two themes in a single lamp (like the 90s red/blue Mathmos bi-color lamps) via `--bicolor THEME_B` or the menu's TINT field. Half the blobs carry each palette and merge naturally at their boundaries
 - **Motion Trails** - Press `T` during animation to toggle slow-shutter trails; each blob paints a soft fading comet-tail behind it. Works on all lamp and fullscreen styles
 - **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
 - **Koi Pond Mode** - Fullscreen animated koi pond with 6-10 sage-green lily pads scattered across the water and colorized fish (6 real koi varieties: Kohaku, Sanke, Showa, Tancho, Ogon, Asagi) using 14-segment skeletal physics, pectoral fins, and fanning tail fins
+- **Donut Mode** - Fullscreen spinning ASCII donut (Andy Sloane's donut.c geometry) rendered entirely in theme colors. Each lit surface point picks its palette from the theme list so the whole donut cycles through every color theme as it spins. 8 sprinkle patterns via `B`/`V` — solid theme-cycle, ring bands, tube stripes, confetti, hoops, speckle, and more
 - **1-6 Lamps** - Display multiple lava lamps side by side
 - **5 Sizes** - 11.5", 14.5", 16.3", 17", and 27" Grande (default)
 - **Freestyle Mode** - Fullscreen lava with no lamp frame, filling the entire terminal
@@ -121,11 +122,14 @@ lavacli --style fireplace --theme aurora
 
 # Classic bi-color lamp: yellow/red mixed with blue/white
 lavacli --theme yellow_red --bicolor blue_white
+
+# Big spinning donut with theme-cycling sprinkles
+lavacli --style donut
 ```
 
 | Flag | Values | Description |
 |------|--------|-------------|
-| `--style` | `classic`, `slim`, `globe`, `lava`, `diamond`, `cylinder`, `pear`, `rocket`, `freestyle`, `koipond`, `fireplace` | Lamp style |
+| `--style` | `classic`, `slim`, `globe`, `lava`, `diamond`, `cylinder`, `pear`, `rocket`, `freestyle`, `koipond`, `fireplace`, `donut` | Lamp style |
 | `--theme` | `yellow_red`, `blue_white`, `clear_orange`, `purple_haze`, `neon_green`, `blue_purple`, `clear_red`, `sunset`, `psychedelic`, `mono`, `koi_pond`, `aurora` | Color theme |
 | `--flow` | `classic`, `chaotic`, `zen`, `bouncy`, `swirl`, `liquid` | Flow physics |
 | `--count` | `1`–`6` | Number of lamps side by side |
@@ -160,8 +164,8 @@ Run `lavacli --help` for the full list.
 | `+` / `=` | Speed up (up to 300%) |
 | `-` | Slow down (down to 25%) |
 | `C` | Cycle color theme |
-| `B` | Add a blob (or fish in Koi Pond mode) |
-| `V` | Remove a blob (or fish in Koi Pond mode) |
+| `B` | Add a blob (fish in Koi Pond; next sprinkle pattern in Donut) |
+| `V` | Remove a blob (fish in Koi Pond; previous sprinkle pattern in Donut) |
 | `T` | Toggle slow-shutter trails (motion blur) — lamp & fullscreen modes |
 | `R` | Reset all lamps |
 | `H` | Toggle HUD (show/hide bottom bar) |
@@ -181,6 +185,7 @@ Run `lavacli --help` for the full list.
 | Freestyle | No lamp frame - fullscreen lava fills the terminal |
 | Koi Pond | Fullscreen animated koi pond with sage-green lily pads and colorized swimming fish |
 | Fireplace | Fullscreen rising embers - hot metaballs spawn at the bottom, drift upward with flicker, cool and fade at the top, then recycle |
+| Donut | Fullscreen spinning ASCII donut (Andy Sloane's donut.c) rendered in theme colors; sprinkles cycle through all 12 themes as it rotates |
 
 ## Themes
 
@@ -290,6 +295,10 @@ Each ball carries a `palette_id` (0 or 1); `--bicolor THEME_B` assigns palettes 
 ### Motion Trails
 
 When `T` is pressed, each lamp allocates a per-cell trail buffer sized to the body. Every frame, cells that currently hold lava refresh to full trail life; cells that went back to liquid but still have life remaining are redrawn with a progressively dimmer level (lava 3 → 2 → 1 → rim) over ~14 frames before disappearing. The trail buffer lives on the `Lamp` instance, so resize or reset cleanly invalidates it.
+
+### Donut
+
+The donut is a port of Andy Sloane's classic donut.c: a torus of inner radius 1 and outer radius 2 is rotated about two axes, perspective-projected, lit by a diagonal Lambertian light, and rasterized into a z-buffer. Instead of donut.c's 12-character luminance ramp, each lit surface point picks its palette from `THEME_ORDER` using a mix of its `(i, j)` angular indices and a slowly advancing frame offset, then the Lambertian intensity selects the shade within that palette. The whole donut visibly rotates through every color theme as it spins, and `B`/`V` switches between 8 sprinkle patterns (solid cycle, ring bands, tube stripes, confetti grid, chunky wedges, stacked hoops, fine speckle). Width and height scale independently so the donut fills wide terminals too — on an 80×24 screen the silhouette diameter spans ~60 columns. `ColorHelper.setup_donut_colors()` pre-warms curses pairs for every theme's lava palette against the current liquid background, so sprinkles never fall back to the liquid-on-liquid pair mid-render.
 
 ### Koi Pond
 

@@ -4,6 +4,22 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.0] - 2026-04-13
+
+### Added
+
+- **Donut mode** - New 12th lamp style: a fullscreen spinning ASCII donut, ported from Andy Sloane's classic donut.c. The torus (R1=1, R2=2) rotates about two axes with perspective projection and Lambertian lighting, rasterized via the app's half-block pipeline so it composes with the existing theme/HUD/resize machinery. Sized so its projected diameter spans 70-85% of each terminal axis — a proper BIG SPINNING DONUT rather than a min-dim-capped miniature
+- **Theme-cycling sprinkles** - Instead of donut.c's 12-character luminance ramp, each lit point on the torus picks its palette from `THEME_ORDER` and the Lambertian intensity picks the shade within that palette, so the donut is rendered entirely out of theme colors. A time offset rotates the selection every few frames, so the whole donut visibly cycles through all 12 themes as it spins
+- **8 sprinkle patterns** - `B`/`V` during donut mode cycle the spatial component of the palette selection. Default `(0, 0)` is "solid" — whole donut shares one palette that shifts through every theme over time (clearest theme-cycling look). Other patterns layer in ring bands `(1, 3)`, tube stripes `(5, 1)`, broad wraps `(1, 7)`, diagonal confetti `(3, 5)`, chunky wedges `(0, 1)`, stacked hoops `(1, 0)`, and fine speckle `(7, 7)`
+- **`ColorHelper.setup_donut_colors()`** - Pre-warms a curses color pair for every `(lava_color, liquid_bg)` and `(lava_color, lava_color)` combo across all 12 theme palettes (~120 pairs). Without this pre-allocation, `_lazy_color_pair` can silently fall back to the `(liquid, liquid)` pair mid-render when it runs out of slots — which was making sprinkles disappear
+- **`ColorHelper.draw_colored_cell()`** - Generic half-block draw helper that accepts arbitrary ANSI-256 colors for the top and bottom cell halves, backed by the lazy pair cache. Used by the donut renderer so sprinkles from many themes can coexist on the same frame
+- **Live donut preview in the menu** - Hovering "Donut" in the STYLE menu now renders a real miniature spinning donut in the preview panel, right next to the Koi Pond preview
+
+### Changed
+
+- **Sampling density** - Donut inner-loop steps match donut.c's originals (`θ=0.07`, `φ=0.02`), ~28k sample points per frame. Python sustains ~40 fps on a default terminal thanks to the flat buffer + integer palette index math
+- **Width and height scale independently** - Earlier draft capped the donut on `min(w, ph)`, leaving tiny donuts on wide terminals. Now `scale_x = w * 0.58` and `scale_y = ph * 0.58` give a big ring on any aspect ratio
+
 ## [1.4.0] - 2026-04-12
 
 ### Added

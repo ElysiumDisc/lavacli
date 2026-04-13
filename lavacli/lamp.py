@@ -73,9 +73,12 @@ SHAPES = {
     'fireplace': [  # Fullscreen fireplace (embers rise, cool, fade)
         (0.00, 1.00), (1.00, 1.00),
     ],
+    'donut': [  # Fullscreen spinning ASCII donut (no lamp frame)
+        (0.00, 1.00), (1.00, 1.00),
+    ],
 }
 
-SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle', 'koipond', 'fireplace']
+SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle', 'koipond', 'fireplace', 'donut']
 
 # Rocket-specific nose cone (pointed tip) and fin base profiles
 ROCKET_CAP_PROFILE = [

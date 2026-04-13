@@ -4,6 +4,7 @@ import math
 import random
 import time
 
+from .donut import Donut
 from .lamp import (SHAPE_ORDER, FLOW_ORDER, SIZE_ORDER, SIZE_NAMES,
                    Ball, Lamp)
 from .pond import Pond
@@ -151,6 +152,11 @@ def _build_preview(style, flow, inner_w, inner_h, bicolor=False):
         h = max(10, inner_h)
         return Pond(w, h, fish_count=3)
 
+    if style == 'donut':
+        w = max(10, inner_w)
+        h = max(6, inner_h)
+        return Donut(w, h)
+
     if style in ('freestyle', 'fireplace'):
         return Lamp(style, inner_w, inner_h, flow,
                     num_balls=5, ball_radius=max(2.5, inner_w * 0.22),
@@ -172,6 +178,10 @@ def _build_preview(style, flow, inner_w, inner_h, bicolor=False):
 def _render_preview(screen, preview, ch, px, py, inner_w, inner_h):
     """Draw a preview lamp/pond centered inside (px, py, inner_w, inner_h)."""
     if isinstance(preview, Pond):
+        preview.render(screen, ch, x_off=px, y_off=py)
+        return
+
+    if isinstance(preview, Donut):
         preview.render(screen, ch, x_off=px, y_off=py)
         return
 
@@ -201,10 +211,12 @@ def show_menu(screen):
     ch = ColorHelper(THEME_ORDER[selections[1]])
     ch.setup()
     ch.setup_pond_colors()
+    ch.setup_donut_colors()
 
     def _apply_theme(name):
         ch.change_theme(name)
         ch.setup_pond_colors()
+        ch.setup_donut_colors()
 
     def _apply_tint(tint_idx):
         """tint_idx 0 = no secondary (bicolor off); 1..N = THEME_ORDER[idx-1]."""
