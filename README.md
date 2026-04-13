@@ -37,8 +37,10 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 
 ## Features
 
-- **10 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), and Koi Pond (fullscreen animated fish with lily pads)
-- **11 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, and Koi Pond - inspired by classic 1992-2004 Lava Library color codes
+- **11 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), Koi Pond (fullscreen animated fish with lily pads), and Fireplace (fullscreen rising embers)
+- **12 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, Koi Pond, and Aurora - inspired by classic 1992-2004 Lava Library color codes
+- **Bi-color Lava** - Mix two themes in a single lamp (like the 90s red/blue Mathmos bi-color lamps) via `--bicolor THEME_B` or the menu's TINT field. Half the blobs carry each palette and merge naturally at their boundaries
+- **Motion Trails** - Press `T` during animation to toggle slow-shutter trails; each blob paints a soft fading comet-tail behind it. Works on all lamp and fullscreen styles
 - **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
 - **Koi Pond Mode** - Fullscreen animated koi pond with 6-10 sage-green lily pads scattered across the water and colorized fish (6 real koi varieties: Kohaku, Sanke, Showa, Tancho, Ogon, Asagi) using 14-segment skeletal physics, pectoral fins, and fanning tail fins
 - **1-6 Lamps** - Display multiple lava lamps side by side
@@ -113,17 +115,24 @@ lavacli --random --style freestyle --duration 600
 
 # Just randomize everything
 lavacli --random
+
+# Cozy fireplace with Aurora-night-sky embers
+lavacli --style fireplace --theme aurora
+
+# Classic bi-color lamp: yellow/red mixed with blue/white
+lavacli --theme yellow_red --bicolor blue_white
 ```
 
 | Flag | Values | Description |
 |------|--------|-------------|
-| `--style` | `classic`, `slim`, `globe`, `lava`, `diamond`, `cylinder`, `pear`, `rocket`, `freestyle`, `koipond` | Lamp style |
-| `--theme` | `yellow_red`, `blue_white`, `clear_orange`, `purple_haze`, `neon_green`, `blue_purple`, `clear_red`, `sunset`, `psychedelic`, `mono`, `koi_pond` | Color theme |
+| `--style` | `classic`, `slim`, `globe`, `lava`, `diamond`, `cylinder`, `pear`, `rocket`, `freestyle`, `koipond`, `fireplace` | Lamp style |
+| `--theme` | `yellow_red`, `blue_white`, `clear_orange`, `purple_haze`, `neon_green`, `blue_purple`, `clear_red`, `sunset`, `psychedelic`, `mono`, `koi_pond`, `aurora` | Color theme |
 | `--flow` | `classic`, `chaotic`, `zen`, `bouncy`, `swirl`, `liquid` | Flow physics |
 | `--count` | `1`–`6` | Number of lamps side by side |
 | `--size` | `S`, `M`, `L`, `XL`, `G` | 11.5" / 14.5" / 16.3" / 17" / 27" Grande |
 | `--random` | — | Randomize any unspecified fields |
 | `--duration SECONDS` | integer | Run for N seconds then exit (screensaver mode) |
+| `--bicolor THEME_B` | any `--theme` value | Mix a second palette into the lava (90s bi-color lamp) |
 | `--version` | — | Print the installed version |
 
 Run `lavacli --help` for the full list.
@@ -136,8 +145,8 @@ Run `lavacli --help` for the full list.
 |-----|--------|
 | `Up/Down` or `j/k` | Navigate between fields (wraps at the ends) |
 | `Left/Right` or `h/l` | Cycle the selected field's value |
-| `1`–`5` | Jump directly to STYLE / THEME / FLOW / COUNT / SIZE |
-| `R` | Randomize all five fields |
+| `1`–`6` | Jump directly to STYLE / THEME / FLOW / COUNT / SIZE / TINT |
+| `R` | Randomize all six fields |
 | `Enter` | Launch the lava lamp |
 | `Q` / `Esc` | Quit |
 
@@ -153,6 +162,7 @@ Run `lavacli --help` for the full list.
 | `C` | Cycle color theme |
 | `B` | Add a blob (or fish in Koi Pond mode) |
 | `V` | Remove a blob (or fish in Koi Pond mode) |
+| `T` | Toggle slow-shutter trails (motion blur) — lamp & fullscreen modes |
 | `R` | Reset all lamps |
 | `H` | Toggle HUD (show/hide bottom bar) |
 
@@ -170,6 +180,7 @@ Run `lavacli --help` for the full list.
 | Rocket | Mathmos Telstar rocket ship — cylindrical chrome body, pointed nose, three swept fins, chrome highlight stripe |
 | Freestyle | No lamp frame - fullscreen lava fills the terminal |
 | Koi Pond | Fullscreen animated koi pond with sage-green lily pads and colorized swimming fish |
+| Fireplace | Fullscreen rising embers - hot metaballs spawn at the bottom, drift upward with flicker, cool and fade at the top, then recycle |
 
 ## Themes
 
@@ -188,6 +199,7 @@ Inspired by the classic 1992-2004 Lava Library color codes with dark bases:
 | Psychedelic | Rainbow | Navy |
 | Monochrome | Gray-to-white | Black |
 | Koi Pond | White-salmon-orange koi gradient | Teal water (pairs with lily pads) |
+| Aurora | Violet-magenta-green-cyan ribbons | Near-black night sky (pairs with Fireplace) |
 
 ## Flow Types
 
@@ -266,6 +278,18 @@ Each terminal cell is split into two vertical halves using Unicode half-block ch
 ### Solid Base/Cap
 
 The metallic base and cap are rendered as filled shapes using half-block characters with 3-tone highlight/mid/shadow shading. The base uses a classic hourglass profile. The rocket style uses a sharp pointed nose cone, a serrated three-fin base profile, and an extra horizontal chrome highlight stripe down the center column for polished metal curvature.
+
+### Fireplace
+
+The Fireplace style reuses the metaball engine but flips gravity: a dense cloud of small "embers" spawns at the bottom with `temp=1.0` and drifts upward. Each ember's temperature decays as a function of its height — `temp = (1 - y/phys_height)^1.4` — and that temperature *scales the ember's metaball field contribution*, so cooler embers naturally dim through the lower lava levels and then through the rim-glow color before winking out entirely. Once an ember fully fades (or escapes the top of the screen), it respawns at the bottom with a fresh hot temperature. A slight outward swirl and strong random jitter give the flame a convincing flicker. Pair it with the Aurora theme for a northern-lights look, or Sunset / Clear Red for a classic hearth.
+
+### Bi-color Lava
+
+Each ball carries a `palette_id` (0 or 1); `--bicolor THEME_B` assigns palettes round-robin so the two halves stay balanced. At every rendered pixel the engine sums per-palette metaball contributions separately and picks the dominant palette for coloring, so merged blobs blend along a natural boundary. Cross-palette color pairs are allocated lazily on first use via `ColorHelper.set_secondary_theme` — only the (fg, bg) combos that actually appear on screen consume curses pair slots, which keeps the approach well within the 256-pair budget on standard terminals. Bi-color is a metaball-only effect; the Perlin-noise `liquid` flow has no per-ball identity and falls back to the primary palette.
+
+### Motion Trails
+
+When `T` is pressed, each lamp allocates a per-cell trail buffer sized to the body. Every frame, cells that currently hold lava refresh to full trail life; cells that went back to liquid but still have life remaining are redrawn with a progressively dimmer level (lava 3 → 2 → 1 → rim) over ~14 frames before disappearing. The trail buffer lives on the `Lamp` instance, so resize or reset cleanly invalidates it.
 
 ### Koi Pond
 

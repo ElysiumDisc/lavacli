@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.6+
+- Python 3.8+ (matches `requires-python` in `pyproject.toml`)
 - A terminal emulator with Unicode and 256-color support
 - Linux or macOS (curses is built-in); Windows requires `windows-curses` package
 
@@ -58,12 +58,12 @@ python3 run.py
 
 | File | Purpose |
 |------|---------|
-| `app.py` | argparse CLI layer, curses setup, animation loop (~20fps), input dispatch, layout, resize handling, menu-to-lamp/pond flow, `--duration` deadline handling for screensaver mode |
-| `lamp.py` | Core lava simulation: shape profiles (including rocket), `Ball`/`Lamp` classes, metaball field computation, Perlin noise field, half-block rendering, solid base/cap/frame rendering |
+| `app.py` | argparse CLI layer (incl. `--bicolor`), curses setup, animation loop (~20fps), input dispatch (incl. `T` for trails), layout, resize handling, menu-to-lamp/pond flow, `--duration` deadline handling for screensaver mode |
+| `lamp.py` | Core lava simulation: shape profiles (incl. rocket and fireplace), `Ball`/`Lamp` classes, metaball field computation (scalar + bi-color variant), fireplace ember physics (`_update_fireplace`), Perlin noise field, trail buffer + decay, half-block rendering, solid base/cap/frame rendering |
 | `pond.py` | Koi pond simulation: `Segment`/`Fish`/`LilyPad`/`Pond` classes, skeletal segment physics, lily pad rasterization with V-notch + 3-tone shading, buffer-based fish body rasterization, pectoral fin and tail fin rendering |
 | `noise.py` | Pure-Python 3D Perlin noise implementation with fractal Brownian motion (FBM) for the Liquid flow type |
-| `themes.py` | 11 theme definitions (classic Lava Library colors + Koi Pond, all with dark bases and sage lily pad palette), 6 koi color patterns, `ColorHelper` for curses color pair management, frame/base/cell/pond drawing methods |
-| `menu.py` | Animated TUI menu with lava background, groovy taglines, and a live preview panel (`_build_preview` / `_render_preview`) that instantiates a real miniature `Lamp` or `Pond` for the currently-selected configuration. Includes inline theme palette swatch, `(n/total)` position counters, `R` randomize, `1`–`5` field jumps, and wrap-around navigation |
+| `themes.py` | 12 theme definitions (classic Lava Library colors + Koi Pond + Aurora, all with dark bases and sage lily pad palette), 6 koi color patterns, `ColorHelper` for curses color pair management with bi-color secondary palette + lazy pair allocation (`set_secondary_theme`, `_lazy_color_pair`), frame/base/cell/pond drawing methods |
+| `menu.py` | Animated TUI menu with lava background, groovy taglines, and a live preview panel (`_build_preview` / `_render_preview`) that instantiates a real miniature `Lamp` or `Pond` for the currently-selected configuration. Includes inline theme palette swatch, `(n/total)` position counters, `TINT` bi-color field, `R` randomize, `1`–`6` field jumps, and wrap-around navigation |
 
 ### Rendering Pipeline
 
@@ -82,7 +82,7 @@ Each frame (~20fps):
 
 Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). Interpolation uses smoothstep (cubic Hermite) for smooth curves.
 
-10 styles available:
+11 styles available:
 
 | Style | Shape | Profile |
 |-------|-------|---------|
@@ -96,6 +96,7 @@ Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 
 | Rocket | Cylindrical chrome glass column with sharp nose cone, three swept fins (serrated profile), and chrome highlight stripe | `SHAPES['rocket']` + `ROCKET_CAP_PROFILE` + `ROCKET_BASE_PROFILE` + `Lamp._chrome_shade()` |
 | Freestyle | Full-width rectangle | `SHAPES['freestyle']` (no frame) |
 | Koi Pond | Fullscreen animated fish | `SHAPES['koipond']` (dispatches to `pond.py`) |
+| Fireplace | Fullscreen rising embers (inverted gravity, temperature-scaled metaball field, bottom recycle) | `SHAPES['fireplace']` + `FLOW_PARAMS['fireplace']` + `Lamp._update_fireplace()` |
 
 Style-specific profiles are selected via `Lamp._get_cap_profile()` and `Lamp._get_base_profile()`. The default base uses `BASE_PROFILE` (hourglass pedestal), rocket uses `ROCKET_BASE_PROFILE` (swept fins), and cylinder uses `CYLINDER_BASE_PROFILE` (simple cone).
 
@@ -123,6 +124,20 @@ Sizes auto-scale to fit the terminal. Rocket style gets a taller nose cone and f
 - Additional pairs for text, UI, accent elements
 
 Each theme defines: `lava` (5 intensity colors), `liquid` (background), `rim` (glow edge), `base_color`/`base_mid`/`base_shadow` (3-tone metallic), and `border` (dark glass outline).
+
+**Bi-color (secondary palette) lazy allocation.** When `--bicolor THEME_B` or the menu's `TINT` field is set, `ColorHelper.set_secondary_theme()` records a second `_level_colors_b` array. `draw_cell()` accepts optional `top_pid`/`bot_pid` arguments; cells where either pid is 1 route through `_lazy_color_pair()`, which allocates a curses pair for the actual (fg, bg) ANSI color combo on first use and caches it in `_lazy_pair_cache`. Only combos that actually appear on screen consume pair slots, keeping total usage well under the 256-pair budget on standard terminals.
+
+### Fireplace Ember Physics
+
+Fireplace reuses the metaball engine but swaps in `FLOW_PARAMS['fireplace']` (negative gravity, no buoyancy, no wall bounce, strong flicker `random_force`, slight outward `swirl`) regardless of the user's flow pick. `Lamp.__init__` spawns `2× num_balls` small, hot embers at the bottom with an initial upward velocity. `_update_fireplace()` drifts each ember upward with flicker jitter, cools temperature via `temp = (1 - y/phys_height)^1.4`, softly wraps horizontal out-of-bounds (no bounce), and recycles any ember that escapes the top or fades below `temp < 0.04` back to the bottom with fresh randomized state. The existing `compute_field()` multiplies each ball's metaball contribution by `ball.temp` when `style == 'fireplace'`, so cooler embers naturally drop through the rim glow level and vanish.
+
+### Bi-color Metaball Rendering
+
+Each `Ball` carries a `palette_id` (0 or 1). `Lamp(..., bicolor=True)` assigns palettes round-robin so the two groups start balanced. `add_ball()` / `remove_ball()` preserve the balance by adding to the minority and removing from the majority. `Lamp.compute_field_bicolor(px, py)` sums metaball contributions per palette and returns `(total_field, dominant_palette_id)`; the dominant id is then threaded into `ColorHelper.draw_cell(..., top_pid, bot_pid)` so each pixel picks the winning palette's colors. Bi-color is a metaball-only effect — the Perlin-noise `liquid` flow has no per-ball identity, so `compute_field_bicolor` falls back to palette 0 there.
+
+### Motion Trails (Slow-shutter Mode)
+
+Each `Lamp` carries a lazily-allocated `trail_buffer` — a 2D list of `[top_level, bot_level, frames_remaining, top_pid, bot_pid]` sized to `body_height × body_width`. During `render_freestyle` and `_render_body`, any cell currently showing lava refreshes its buffer entry to `TRAIL_LIFE` (14 frames); any cell that's gone back to liquid but still has life remaining is drawn with a progressively dimmer level via `_trail_decay_level()` (lava 3 → 2 → 1 → rim over the 14-frame window) and then decremented. `Lamp.resize()` invalidates the buffer so it reallocates at the new dimensions on the next frame.
 
 ### Physics Parameters
 
@@ -210,7 +225,7 @@ In `lamp.py`, add to the `SHAPES` dict:
 ],
 ```
 
-Then add `'my_shape'` to `SHAPE_ORDER`. For custom cap/base profiles (like rocket), define separate profile arrays and add conditionals in `_cap_bounds_at()` and `_base_bounds_at()`.
+Then add `'my_shape'` to `SHAPE_ORDER`. For custom cap/base profiles (like rocket), define separate profile arrays and add conditionals in `_cap_bounds_at()` and `_base_bounds_at()`. For a fullscreen style with no lamp frame (like `freestyle` / `fireplace`), add the style name to the `style in ('freestyle', 'fireplace')` check in `calculate_lamp_dims()` and `_run_lamp()` in `app.py` so it uses the freestyle render path.
 
 ## Adding a New Flow Type
 

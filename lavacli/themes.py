@@ -137,12 +137,26 @@ THEMES = {
         'glow': 23,
         'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
+    'aurora': {
+        'name': 'Aurora',
+        # Night-sky ribbons: violet -> magenta -> green -> cyan over black.
+        # Pairs with the Fireplace style for a "northern lights" vibe.
+        'lava': [55, 92, 35, 48, 51],              # violet -> magenta -> greens -> cyan
+        'liquid': 232,                              # near-black night sky
+        'rim': 93,                                  # purple halo
+        'base_color': 235,
+        'base_mid': 234,
+        'base_shadow': 232,
+        'border': 16,
+        'glow': 54,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
+    },
 }
 
 THEME_ORDER = [
     'yellow_red', 'blue_white', 'clear_orange', 'purple_haze',
     'neon_green', 'blue_purple', 'clear_red', 'sunset',
-    'psychedelic', 'mono', 'koi_pond',
+    'psychedelic', 'mono', 'koi_pond', 'aurora',
 ]
 
 # ---------------------------------------------------------------------------
@@ -216,6 +230,12 @@ class ColorHelper:
         self._fish_pairs = {}
         self._has_256 = False
         self._next_pair_id = 1
+        # Bicolor support: when a secondary theme is set, palette_id=1
+        # cells resolve through _level_colors_b via lazy pair allocation.
+        self._secondary_theme_name = None
+        self._level_colors_a = None
+        self._level_colors_b = None
+        self._lazy_pair_cache = {}
 
     def setup(self):
         """Initialize curses color pairs. Call after curses.initscr()."""
@@ -236,6 +256,8 @@ class ColorHelper:
         all_colors = [liquid] + list(lava) + [rim]
         n = len(all_colors)
         self._max_level = n - 1
+        # Record the primary palette's colors-by-level for bicolor lookup
+        self._level_colors_a = list(all_colors)
 
         pair_id = 1
 
@@ -415,12 +437,78 @@ class ColorHelper:
     def dim_attr(self):
         return curses.color_pair(self._dim_pair)
 
-    def draw_cell(self, screen, row, col, top_level, bot_level):
+    def set_secondary_theme(self, theme_name):
+        """Enable bi-color rendering: palette_id=1 cells use this theme's palette.
+
+        Pass None to disable. Safe to call repeatedly; pair allocation is lazy
+        via _lazy_pair_cache so only the (fg, bg) combos actually drawn take up
+        color-pair slots.
+        """
+        self._secondary_theme_name = theme_name
+        self._lazy_pair_cache = {}
+        if theme_name is None or not self._has_256:
+            self._level_colors_b = None
+            return
+        t = THEMES[theme_name]
+        lava = t['lava']
+        rim = t.get('rim', lava[0])
+        self._level_colors_b = [t['liquid']] + list(lava) + [rim]
+
+    def _color_for_level(self, level, palette_id):
+        """Resolve a (level, palette_id) to an ANSI-256 color code, or -1."""
+        if level < 0:
+            return -1
+        if palette_id == 1 and self._level_colors_b is not None:
+            colors = self._level_colors_b
+        else:
+            colors = self._level_colors_a or []
+        if not colors:
+            return -1
+        return colors[min(level, len(colors) - 1)]
+
+    def _lazy_color_pair(self, fg_c, bg_c):
+        """Allocate (and cache) a curses pair for an arbitrary fg/bg color combo."""
+        key = (fg_c, bg_c)
+        pid = self._lazy_pair_cache.get(key)
+        if pid is None:
+            if self._next_pair_id >= max(1, curses.COLOR_PAIRS - 1):
+                # Out of color-pair slots; fall back to an existing neutral pair.
+                return curses.color_pair(self.pair_map.get((0, 0), 1))
+            try:
+                curses.init_pair(self._next_pair_id, fg_c, bg_c)
+            except curses.error:
+                return curses.color_pair(self.pair_map.get((0, 0), 1))
+            pid = self._next_pair_id
+            self._lazy_pair_cache[key] = pid
+            self._next_pair_id += 1
+        return curses.color_pair(pid)
+
+    def draw_cell(self, screen, row, col, top_level, bot_level,
+                  top_pid=0, bot_pid=0):
         """Draw a half-block cell for the lamp body.
-        Level: -1=outside, 0=liquid, 1+=lava intensity."""
+        Level: -1=outside, 0=liquid, 1+=lava intensity.
+        palette_id: 0=primary theme, 1=secondary (bicolor) theme.
+        """
         if top_level == -1 and bot_level == -1:
             return
+        # Bicolor path: only when a secondary palette is active AND this cell
+        # actually involves it. Otherwise take the fast path via pair_map.
+        bicolor = (self._level_colors_b is not None
+                   and (top_pid == 1 or bot_pid == 1))
         try:
+            if bicolor:
+                top_c = self._color_for_level(top_level, top_pid)
+                bot_c = self._color_for_level(bot_level, bot_pid)
+                if top_level == -1:
+                    screen.addstr(row, col, '\u2584',
+                                  self._lazy_color_pair(bot_c, -1))
+                elif bot_level == -1:
+                    screen.addstr(row, col, '\u2580',
+                                  self._lazy_color_pair(top_c, -1))
+                else:
+                    screen.addstr(row, col, '\u2580',
+                                  self._lazy_color_pair(top_c, bot_c))
+                return
             if top_level == -1:
                 # Top outside, bottom visible
                 screen.addstr(row, col, '\u2584', self.get_pair(bot_level, -1))
@@ -612,10 +700,14 @@ class ColorHelper:
             return pattern['body_main']
 
     def change_theme(self, theme_name):
-        """Switch to a different theme."""
+        """Switch to a different theme (keeping secondary bicolor theme if set)."""
         self.theme_name = theme_name
         self.theme = THEMES[theme_name]
         self.num_levels = len(self.theme['lava'])
         self.pair_map.clear()
         self._fish_pairs = {}
+        self._lazy_pair_cache = {}
         self.setup()
+        # Re-apply secondary palette (setup resets _level_colors_a)
+        if self._secondary_theme_name is not None:
+            self.set_secondary_theme(self._secondary_theme_name)

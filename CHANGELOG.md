@@ -4,6 +4,28 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.0] - 2026-04-12
+
+### Added
+
+- **Fireplace mode** - New 11th lamp style: a fullscreen crackling fireplace of rising embers. Reuses the metaball engine with inverted physics — embers spawn hot at the bottom, drift upward with flicker jitter and a slight updraft curl, cool monotonically as they rise, and recycle back to the bottom once they fade. Ember brightness is driven by `ball.temp` scaling the metaball field contribution, so fading embers naturally dim through the rim level before winking out. Pairs beautifully with the Sunset, Clear Red, and new Aurora themes
+- **Aurora theme** - New 12th color theme: violet → magenta → green → cyan ribbons over a near-black night sky, with a purple halo glow and a dark metal base. Designed as the companion theme to Fireplace, but looks great on any fullscreen or glass lamp
+- **Bi-color lava** (`--bicolor THEME_B` flag, `TINT` menu field) - A single lamp can now mix two palettes like the 90s red/blue Mathmos bi-color lamps. Half the blobs carry the primary theme's palette, half carry the secondary's. Color pairs for cross-palette combos are lazily allocated via a new `ColorHelper.set_secondary_theme` / `_lazy_color_pair` pathway, so only the (fg, bg) combos actually drawn consume curses pair slots. `B`/`V` during animation keeps the two palettes balanced
+- **Blob trails** (`T` key) - Toggle a "slow-shutter" motion-blur effect during animation. Each cell that has lava is remembered in a per-lamp trail buffer for ~14 frames and then fades through lower lava levels down to the rim glow before disappearing — so every blob paints a soft comet-tail behind it. Works for both glass lamps and fullscreen styles (Freestyle, Fireplace). HUD shows `T:Trails*` while active
+- **Menu `TINT` field** - New 6th menu row cycling through `Off` + all 12 themes. Selecting a tint flips the live preview panel into bi-color mode instantly. Number-key jumps now go `1`–`6` to cover the new field
+- **`[A+B]` HUD marker** - Displayed in the bottom controls bar whenever bi-color is active so you can tell at a glance that two palettes are mixing
+
+### Changed
+
+- **Menu help line updated** to reflect the new `1-6 Jump` range
+- **`Lamp` constructor** accepts an optional `bicolor=False` argument. When true, each ball is assigned `palette_id = i % 2` round-robin so the two palettes are evenly distributed from the start
+- **`Ball.__slots__` gained `palette_id`** so every ball carries its palette identity without a dict lookup
+- **Fireplace style overrides the user-picked flow** internally (forcing its own `fireplace` physics params) because ember behavior shouldn't depend on whether the user chose Zen or Chaotic
+
+### Fixed
+
+- **Resize during trails / bi-color no longer leaves stale buffer entries** - `Lamp.resize` now invalidates `trail_buffer` so the next frame reallocates at the new dimensions instead of indexing into a wrong-sized 2D list
+
 ## [1.3.0] - 2026-04-11
 
 ### Added

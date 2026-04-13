@@ -33,10 +33,12 @@ FIELDS = [
     ('FLOW', [f.capitalize() for f in FLOW_ORDER]),
     ('COUNT', [str(i) for i in range(1, 7)]),
     ('SIZE', [SIZE_NAMES[s] for s in SIZE_ORDER]),
+    # TINT: index 0 = off (single palette), 1..N = secondary bicolor theme
+    ('TINT', ['Off'] + [THEMES[t]['name'] for t in THEME_ORDER]),
 ]
 
-# Default selections: classic, retro_red, classic, 1 lamp, Grande (27")
-DEFAULT_SELECTIONS = [0, 0, 0, 0, 4]
+# Default selections: classic, yellow_red, classic, 1 lamp, Grande (27"), tint off
+DEFAULT_SELECTIONS = [0, 0, 0, 0, 4, 0]
 
 
 class _MenuLava:
@@ -137,22 +139,23 @@ PREVIEW_WIDTH = 22  # outer width including border
 PREVIEW_GAP = 2     # gap between menu box and preview box
 
 
-def _build_preview(style, flow, inner_w, inner_h):
+def _build_preview(style, flow, inner_w, inner_h, bicolor=False):
     """Build a small live preview object for the given style/flow.
 
-    Returns a Lamp (for lamp styles, incl. freestyle) or a Pond (koipond).
-    Both expose update() and render(screen, ch, x_off, y_off) after a
-    thin adapter below.
+    Returns a Lamp (for lamp styles, incl. freestyle, fireplace) or a Pond
+    (koipond). Both expose update() and render(screen, ch, x_off, y_off)
+    after a thin adapter below.
     """
     if style == 'koipond':
         w = max(20, inner_w)
         h = max(10, inner_h)
         return Pond(w, h, fish_count=3)
 
-    if style == 'freestyle':
-        return Lamp('freestyle', inner_w, inner_h, flow,
+    if style in ('freestyle', 'fireplace'):
+        return Lamp(style, inner_w, inner_h, flow,
                     num_balls=5, ball_radius=max(2.5, inner_w * 0.22),
-                    base_height=0, cap_height=0, freestyle=True)
+                    base_height=0, cap_height=0, freestyle=True,
+                    bicolor=bicolor)
 
     # Regular lamp: shrink proportions so total_height fits the inner box.
     body_w = max(6, min(12, inner_w - 2))
@@ -162,7 +165,8 @@ def _build_preview(style, flow, inner_w, inner_h):
     ball_r = max(2.0, body_w * 0.28)
     return Lamp(style, body_w, body_h, flow,
                 num_balls=3, ball_radius=ball_r,
-                base_height=base_h, cap_height=cap_h)
+                base_height=base_h, cap_height=cap_h,
+                bicolor=bicolor)
 
 
 def _render_preview(screen, preview, ch, px, py, inner_w, inner_h):
@@ -201,6 +205,13 @@ def show_menu(screen):
     def _apply_theme(name):
         ch.change_theme(name)
         ch.setup_pond_colors()
+
+    def _apply_tint(tint_idx):
+        """tint_idx 0 = no secondary (bicolor off); 1..N = THEME_ORDER[idx-1]."""
+        if tint_idx <= 0:
+            ch.set_secondary_theme(None)
+        else:
+            ch.set_secondary_theme(THEME_ORDER[tint_idx - 1])
 
     # Create background lava
     lava = _MenuLava(width, height)
@@ -356,7 +367,7 @@ def show_menu(screen):
 
         # Help (centered within the box)
         help_y = btn_y + 3
-        help_text = ('\u2191\u2193\u2190\u2192 Nav  1-5 Jump  '
+        help_text = ('\u2191\u2193\u2190\u2192 Nav  1-6 Jump  '
                      'R Rand  Enter  Q Quit')
         try:
             hx = sx + max(0, (menu_width - len(help_text)) // 2)
@@ -368,13 +379,17 @@ def show_menu(screen):
         if show_preview:
             preview_inner_w = PREVIEW_WIDTH - 2
             preview_inner_h = menu_height - 2
-            # Build or rebuild the preview when style/flow/dims change.
+            # Build or rebuild the preview when style/flow/dims/tint change.
             style = SHAPE_ORDER[selections[0]]
             flow = FLOW_ORDER[selections[2]]
-            new_key = (style, flow, preview_inner_w, preview_inner_h)
+            tint_idx = selections[5] if len(selections) > 5 else 0
+            bicolor = tint_idx > 0
+            new_key = (style, flow, preview_inner_w, preview_inner_h,
+                       bicolor)
             if preview is None or preview_key != new_key:
                 preview = _build_preview(style, flow,
-                                         preview_inner_w, preview_inner_h)
+                                         preview_inner_w, preview_inner_h,
+                                         bicolor=bicolor)
                 preview_key = new_key
 
             # Draw preview box border matching the menu box
@@ -415,12 +430,13 @@ def show_menu(screen):
             current_field = (current_field - 1) % (len(FIELDS) + 1)
         elif key == curses.KEY_DOWN or key == ord('j'):
             current_field = (current_field + 1) % (len(FIELDS) + 1)
-        elif ord('1') <= key <= ord('5'):
+        elif ord('1') <= key <= ord('6'):
             current_field = key - ord('1')
         elif key == ord('r') or key == ord('R'):
             for i, (_, options) in enumerate(FIELDS):
                 selections[i] = random.randrange(len(options))
             _apply_theme(THEME_ORDER[selections[1]])
+            _apply_tint(selections[5])
         elif key == curses.KEY_LEFT or key == ord('h'):
             if current_field < len(FIELDS):
                 n = len(FIELDS[current_field][1])
@@ -428,19 +444,26 @@ def show_menu(screen):
                 # Live theme preview: re-init colors when theme changes
                 if current_field == 1:
                     _apply_theme(THEME_ORDER[selections[1]])
+                elif current_field == 5:
+                    _apply_tint(selections[5])
         elif key == curses.KEY_RIGHT or key == ord('l'):
             if current_field < len(FIELDS):
                 n = len(FIELDS[current_field][1])
                 selections[current_field] = (selections[current_field] + 1) % n
                 if current_field == 1:
                     _apply_theme(THEME_ORDER[selections[1]])
+                elif current_field == 5:
+                    _apply_tint(selections[5])
         elif key in (ord('\n'), curses.KEY_ENTER, 10):
+            tint_idx = selections[5]
             return {
                 'style': SHAPE_ORDER[selections[0]],
                 'theme': THEME_ORDER[selections[1]],
                 'flow': FLOW_ORDER[selections[2]],
                 'count': selections[3] + 1,
                 'size': SIZE_ORDER[selections[4]],
+                'bicolor': (THEME_ORDER[tint_idx - 1]
+                            if tint_idx > 0 else None),
             }
         elif key == curses.KEY_RESIZE:
             height, width = screen.getmaxyx()

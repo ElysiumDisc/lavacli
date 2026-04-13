@@ -70,9 +70,12 @@ SHAPES = {
     'koipond': [  # Fullscreen koi pond (no lamp frame)
         (0.00, 1.00), (1.00, 1.00),
     ],
+    'fireplace': [  # Fullscreen fireplace (embers rise, cool, fade)
+        (0.00, 1.00), (1.00, 1.00),
+    ],
 }
 
-SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle', 'koipond']
+SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle', 'koipond', 'fireplace']
 
 # Rocket-specific nose cone (pointed tip) and fin base profiles
 ROCKET_CAP_PROFILE = [
@@ -222,6 +225,18 @@ FLOW_PARAMS = {
         'heat_rate': 0.0, 'cool_rate': 0.0,
         'noise_scale': 0.06, 'noise_speed': 0.012, 'noise_octaves': 3,
     },
+    'fireplace': {
+        # Embers rise, cool, fade. Internal flow used only by the
+        # 'fireplace' style regardless of the user-picked flow.
+        'gravity': -0.022,        # NEGATIVE = upward (rising embers)
+        'buoyancy': 0.0,          # temp-based lift disabled; gravity handles it
+        'damping': 0.985,
+        'random_force': 0.012,    # strong flicker/jitter
+        'swirl': 0.004,           # slight updraft curl
+        'bounce': 0.0,            # no wall bounce; embers exit the top
+        'heat_rate': 0.0,         # spawn hot, cool monotonically
+        'cool_rate': 0.022,
+    },
 }
 
 FLOW_ORDER = ['classic', 'chaotic', 'zen', 'bouncy', 'swirl', 'liquid']
@@ -276,15 +291,16 @@ def _interpolate_profile(profile, t):
 # Ball (metaball particle)
 # ---------------------------------------------------------------------------
 class Ball:
-    __slots__ = ('x', 'y', 'vx', 'vy', 'radius', 'temp')
+    __slots__ = ('x', 'y', 'vx', 'vy', 'radius', 'temp', 'palette_id')
 
-    def __init__(self, x, y, radius):
+    def __init__(self, x, y, radius, palette_id=0):
         self.x = x
         self.y = y
         self.vx = random.uniform(-0.2, 0.2)
         self.vy = random.uniform(-0.1, 0.1)
         self.radius = radius
         self.temp = random.uniform(0.2, 0.5)
+        self.palette_id = palette_id
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +310,7 @@ class Lamp:
 
     def __init__(self, style, body_width, body_height, flow_type,
                  num_balls, ball_radius, base_height, cap_height,
-                 freestyle=False):
+                 freestyle=False, bicolor=False):
         self.style = style
         self.freestyle = freestyle
         self.body_width = body_width
@@ -302,21 +318,42 @@ class Lamp:
         self.phys_height = body_height * 2  # half-block vertical resolution
         self.base_height = 0 if freestyle else base_height
         self.cap_height = 0 if freestyle else cap_height
-        self.flow_type = flow_type
-        self.params = FLOW_PARAMS[flow_type]
+        # Fireplace forces its own internal physics regardless of flow pick
+        self.flow_type = 'fireplace' if style == 'fireplace' else flow_type
+        self.params = FLOW_PARAMS[self.flow_type]
         self.profile = SHAPES[style]
         self.ball_radius = ball_radius
         self.speed_mult = 1.0
         self.paused = False
         self._noise_time = random.uniform(0, 100)  # random start for variety
+        self.bicolor = bicolor
+        # Trails (slow-shutter motion blur). Buffer is a grid of
+        # [top_level, bot_level, frames_remaining, top_pid, bot_pid]
+        # per (row, col) cell; only populated while `trails` is on.
+        self.trails = False
+        self.trail_buffer = None
 
         # Place balls inside the glass area (not the metallic frame)
         self.balls = []
-        for _ in range(num_balls):
-            y = random.uniform(self.phys_height * 0.55, self.phys_height * 0.90)
-            gl, gr = self.get_glass_bounds(y)
-            x = random.uniform(gl + 0.5, gr - 0.5)
-            self.balls.append(Ball(x, y, ball_radius))
+        if style == 'fireplace':
+            # Ember cloud: many small particles spawned at the bottom, hot
+            for i in range(num_balls * 2):
+                x = random.uniform(1, body_width - 1)
+                y = random.uniform(self.phys_height * 0.85,
+                                   self.phys_height - 0.5)
+                b = Ball(x, y, ball_radius * 0.6,
+                         palette_id=(i % 2) if bicolor else 0)
+                b.temp = random.uniform(0.8, 1.0)
+                b.vy = random.uniform(-0.3, -0.1)  # initial upward kick
+                self.balls.append(b)
+        else:
+            for i in range(num_balls):
+                y = random.uniform(self.phys_height * 0.55,
+                                   self.phys_height * 0.90)
+                gl, gr = self.get_glass_bounds(y)
+                x = random.uniform(gl + 0.5, gr - 0.5)
+                pid = (i % 2) if bicolor else 0
+                self.balls.append(Ball(x, y, ball_radius, palette_id=pid))
 
     @property
     def total_width(self):
@@ -451,6 +488,11 @@ class Lamp:
             self._noise_time += speed * self.speed_mult
             return
 
+        # Fireplace: inverted gravity + monotonic cooling + recycle at top
+        if self.style == 'fireplace':
+            self._update_fireplace()
+            return
+
         p = self.params
         sm = self.speed_mult
 
@@ -497,20 +539,94 @@ class Lamp:
                 ball.y = self.phys_height - 1.0
                 ball.vy = -abs(ball.vy) * p['bounce']
 
+    def _update_fireplace(self):
+        """Ember physics: spawn hot at bottom, rise, cool, recycle when dim."""
+        p = self.params
+        sm = self.speed_mult
+        phys_h = self.phys_height
+        for ball in self.balls:
+            # Upward force (gravity is negative for fireplace)
+            ball.vy += p['gravity'] * sm
+            # Flicker jitter
+            ball.vx += random.gauss(0, p['random_force']) * sm
+            ball.vy += random.gauss(0, p['random_force'] * 0.4) * sm
+            # Slight updraft curl (pulls outward as embers rise)
+            if p['swirl'] > 0:
+                cx = self.body_width / 2
+                dx = ball.x - cx
+                ball.vx += dx * p['swirl'] * sm * 0.5
+            ball.vx *= p['damping']
+            ball.vy *= p['damping']
+            ball.x += ball.vx * sm
+            ball.y += ball.vy * sm
+
+            # Cool as a function of height: hot at bottom (t=1), cold at top.
+            height_frac = max(0.0, min(1.0, 1.0 - ball.y / phys_h))
+            # Ease out: embers hold brightness for a while then fade near top
+            ball.temp = max(0.0, (1.0 - height_frac) ** 1.4)
+
+            # Soft horizontal wrap: nudge instead of bounce
+            if ball.x < 0.5:
+                ball.x = 0.5
+                ball.vx = abs(ball.vx) * 0.3
+            elif ball.x > self.body_width - 0.5:
+                ball.x = self.body_width - 0.5
+                ball.vx = -abs(ball.vx) * 0.3
+
+            # Recycle: if an ember escaped the top or faded, respawn at bottom
+            if ball.y < 0.0 or ball.temp < 0.04:
+                ball.x = random.uniform(1, self.body_width - 1)
+                ball.y = random.uniform(phys_h * 0.88, phys_h - 0.5)
+                ball.vx = random.uniform(-0.15, 0.15)
+                ball.vy = random.uniform(-0.3, -0.1)
+                ball.temp = random.uniform(0.8, 1.0)
+
     # ----- Metaball field -----
 
     def compute_field(self, px, py):
         if self.flow_type == 'liquid':
             return self._compute_noise_field(px, py)
         total = 0.0
+        fireplace = (self.style == 'fireplace')
         for ball in self.balls:
             dx = px - ball.x
             dy = (py - ball.y) * 0.55  # slight vertical squash for organic blobs
             d_sq = dx * dx + dy * dy
             if d_sq < 0.001:
                 d_sq = 0.001
-            total += (ball.radius * ball.radius) / d_sq
+            contribution = (ball.radius * ball.radius) / d_sq
+            # Fireplace: cooler embers fade out by scaling their field
+            if fireplace:
+                contribution *= ball.temp
+            total += contribution
         return total
+
+    def compute_field_bicolor(self, px, py):
+        """Return (total_field, dominant_palette_id) for bi-color rendering.
+
+        Bi-color is a metaball-only feature; when flow=liquid we fall back to
+        scalar field with palette_id=0 (Perlin noise has no per-ball identity).
+        """
+        if self.flow_type == 'liquid':
+            return (self._compute_noise_field(px, py), 0)
+        sum_a = 0.0
+        sum_b = 0.0
+        fireplace = (self.style == 'fireplace')
+        for ball in self.balls:
+            dx = px - ball.x
+            dy = (py - ball.y) * 0.55
+            d_sq = dx * dx + dy * dy
+            if d_sq < 0.001:
+                d_sq = 0.001
+            c = (ball.radius * ball.radius) / d_sq
+            if fireplace:
+                c *= ball.temp
+            if ball.palette_id == 1:
+                sum_b += c
+            else:
+                sum_a += c
+        pid = 1 if sum_b > sum_a else 0
+        return (sum_a + sum_b, pid)
 
     def _compute_noise_field(self, px, py):
         """Perlin noise field for liquid flow. Returns value in metaball-compatible range."""
@@ -520,6 +636,37 @@ class Lamp:
         # Map noise [-1,1] to field [0, ~6] so field_to_level works naturally
         # noise > 0 becomes lava, noise < 0 becomes liquid
         return max(0.0, (n + 0.3) * 5.0)
+
+    # Trails: slow-shutter motion blur. When enabled, each cell records
+    # the most recent lava level and fades over TRAIL_LIFE frames.
+    TRAIL_LIFE = 14
+
+    def _ensure_trail_buffer(self):
+        """Allocate or resize the trail buffer to match body dimensions."""
+        rows = self.body_height
+        cols = self.body_width
+        if (self.trail_buffer is None
+                or len(self.trail_buffer) != rows
+                or (rows and len(self.trail_buffer[0]) != cols)):
+            self.trail_buffer = [
+                [[0, 0, 0, 0, 0] for _ in range(cols)]
+                for _ in range(rows)
+            ]
+
+    @staticmethod
+    def _trail_decay_level(base_level, frames_left):
+        """Map a remembered level + remaining life to a dimmed render level."""
+        if base_level <= 0 or frames_left <= 0:
+            return 0
+        frac = frames_left / float(Lamp.TRAIL_LIFE)
+        # Ease: long tail at low levels. 6 == rim (the soft glow color).
+        if frac > 0.75:
+            return min(base_level, 3)
+        if frac > 0.5:
+            return min(base_level, 2)
+        if frac > 0.25:
+            return min(base_level, 1)
+        return 6  # rim/halo color for the last quarter of the tail
 
     RIM_THRESHOLD = 0.55
 
@@ -561,17 +708,44 @@ class Lamp:
 
     def render_freestyle(self, screen, x_off, y_off, ch):
         """Render fullscreen lava with no lamp frame."""
+        if self.trails:
+            self._ensure_trail_buffer()
         for row in range(self.body_height):
             py_t = row * 2
             py_b = row * 2 + 1
             sy = y_off + row
             for col in range(self.body_width):
                 px = col + 0.5
-                ft = self.compute_field(px, py_t + 0.5)
-                fb = self.compute_field(px, py_b + 0.5)
+                if self.bicolor:
+                    ft, t_pid = self.compute_field_bicolor(px, py_t + 0.5)
+                    fb, b_pid = self.compute_field_bicolor(px, py_b + 0.5)
+                else:
+                    ft = self.compute_field(px, py_t + 0.5)
+                    fb = self.compute_field(px, py_b + 0.5)
+                    t_pid = b_pid = 0
                 tl = self.field_to_level(ft)
                 bl = self.field_to_level(fb)
-                ch.draw_cell(screen, sy, x_off + col, tl, bl)
+
+                if self.trails:
+                    entry = self.trail_buffer[row][col]
+                    has_lava = tl > 0 or bl > 0
+                    if has_lava:
+                        # Refresh the trail memory with the live cell
+                        entry[0] = tl
+                        entry[1] = bl
+                        entry[2] = self.TRAIL_LIFE
+                        entry[3] = t_pid
+                        entry[4] = b_pid
+                    elif entry[2] > 0:
+                        # Liquid now, but paint a fading ghost of the past
+                        gtl = self._trail_decay_level(entry[0], entry[2])
+                        gbl = self._trail_decay_level(entry[1], entry[2])
+                        entry[2] -= 1
+                        if gtl > 0 or gbl > 0:
+                            ch.draw_cell(screen, sy, x_off + col,
+                                         gtl, gbl, entry[3], entry[4])
+                            continue
+                ch.draw_cell(screen, sy, x_off + col, tl, bl, t_pid, b_pid)
 
     def _render_body(self, screen, bx, by, bounds, ch):
         """Render the glass body: metallic frame border + liquid + lava inside."""
@@ -612,6 +786,8 @@ class Lamp:
                                    r_top_in, r_bot_in)
 
             # -- Glass interior: liquid background + lava metaballs --
+            if self.trails:
+                self._ensure_trail_buffer()
             for col in range(inner_left, inner_right + 1):
                 px = col + 0.5
 
@@ -621,13 +797,46 @@ class Lamp:
                 top_in = glt <= px <= grt
                 bot_in = glb <= px <= grb
 
-                ft = self.compute_field(px, py_t + 0.5) if top_in else 0
-                fb = self.compute_field(px, py_b + 0.5) if bot_in else 0
+                if self.bicolor:
+                    if top_in:
+                        ft, t_pid = self.compute_field_bicolor(px, py_t + 0.5)
+                    else:
+                        ft, t_pid = 0, 0
+                    if bot_in:
+                        fb, b_pid = self.compute_field_bicolor(px, py_b + 0.5)
+                    else:
+                        fb, b_pid = 0, 0
+                else:
+                    ft = self.compute_field(px, py_t + 0.5) if top_in else 0
+                    fb = self.compute_field(px, py_b + 0.5) if bot_in else 0
+                    t_pid = b_pid = 0
 
                 tl = self.field_to_level(ft) if top_in else -1
                 bl = self.field_to_level(fb) if bot_in else -1
 
-                ch.draw_cell(screen, sy, bx + col, tl, bl)
+                if self.trails and 0 <= row < len(self.trail_buffer) \
+                        and 0 <= col < len(self.trail_buffer[row]):
+                    entry = self.trail_buffer[row][col]
+                    has_lava = (tl > 0) or (bl > 0)
+                    if has_lava:
+                        entry[0] = tl if tl > 0 else 0
+                        entry[1] = bl if bl > 0 else 0
+                        entry[2] = self.TRAIL_LIFE
+                        entry[3] = t_pid
+                        entry[4] = b_pid
+                    elif entry[2] > 0:
+                        gtl = self._trail_decay_level(entry[0], entry[2])
+                        gbl = self._trail_decay_level(entry[1], entry[2])
+                        entry[2] -= 1
+                        # Only paint the ghost inside glass
+                        if (gtl > 0 or gbl > 0) and (top_in or bot_in):
+                            draw_tl = gtl if top_in else -1
+                            draw_bl = gbl if bot_in else -1
+                            ch.draw_cell(screen, sy, bx + col,
+                                         draw_tl, draw_bl, entry[3], entry[4])
+                            continue
+
+                ch.draw_cell(screen, sy, bx + col, tl, bl, t_pid, b_pid)
 
     def _render_cap(self, screen, bx, y_off, top_bounds, ch):
         """Render the small metallic cap above the glass body."""
@@ -736,10 +945,26 @@ class Lamp:
         y = random.uniform(self.phys_height * 0.6, self.phys_height * 0.9)
         gl, gr = self.get_glass_bounds(y)
         x = random.uniform(gl + 0.5, gr - 0.5)
-        self.balls.append(Ball(x, y, self.ball_radius))
+        # Keep bicolor balanced: add to the minority palette
+        if self.bicolor:
+            count_b = sum(1 for b in self.balls if b.palette_id == 1)
+            count_a = len(self.balls) - count_b
+            pid = 1 if count_b <= count_a else 0
+        else:
+            pid = 0
+        self.balls.append(Ball(x, y, self.ball_radius, palette_id=pid))
 
     def remove_ball(self):
         if len(self.balls) > 1:
+            # Bicolor: remove from the majority palette to keep balance
+            if self.bicolor:
+                count_b = sum(1 for b in self.balls if b.palette_id == 1)
+                count_a = len(self.balls) - count_b
+                target_pid = 1 if count_b > count_a else 0
+                for i in range(len(self.balls) - 1, -1, -1):
+                    if self.balls[i].palette_id == target_pid:
+                        self.balls.pop(i)
+                        return
             self.balls.pop()
 
     def resize(self, new_width, new_height, new_base_h, new_cap_h):
@@ -754,3 +979,5 @@ class Lamp:
         for ball in self.balls:
             ball.x = ball.x * new_width / old_w if old_w > 0 else new_width / 2
             ball.y = ball.y * self.phys_height / old_ph if old_ph > 0 else self.phys_height / 2
+        # Trail buffer dims no longer match; force reallocation next frame
+        self.trail_buffer = None

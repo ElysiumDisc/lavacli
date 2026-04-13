@@ -47,6 +47,9 @@ def _build_parser():
     p.add_argument('--duration', type=_positive_int_range(1, 86400),
                    metavar='SECONDS',
                    help='Run for N seconds then exit (for screensaver use)')
+    p.add_argument('--bicolor', choices=THEME_ORDER,
+                   metavar='THEME_B',
+                   help='Mix a second theme into the lava (90s bi-color lamp)')
     return p
 
 
@@ -90,6 +93,7 @@ def _config_from_args(args):
         'flow': flow,
         'count': count,
         'size': size,
+        'bicolor': args.bicolor,
     }
 
 
@@ -97,8 +101,9 @@ def calculate_lamp_dims(term_w, term_h, count, size_pref, style='classic'):
     """Calculate lamp body dimensions to fit the terminal."""
     defaults = SIZE_DEFAULTS[size_pref]
 
-    # Freestyle: fill the entire terminal
-    if style == 'freestyle':
+    # Fullscreen styles (freestyle / fireplace): fill the whole terminal.
+    # Fireplace uses smaller, more numerous embers, handled in Lamp.__init__.
+    if style in ('freestyle', 'fireplace'):
         body_w = term_w
         body_h = term_h - 1  # leave 1 row for HUD
         num_balls = max(8, defaults['num_balls'] * 2)
@@ -170,7 +175,8 @@ def draw_shelf(screen, positions, lamps, term_w, ch):
         pass
 
 
-def draw_hud(screen, term_h, term_w, lamps, ch, speed):
+def draw_hud(screen, term_h, term_w, lamps, ch, speed,
+             trails=False, bicolor=False):
     """Draw the controls bar at the bottom."""
     hud_y = term_h - 1
     paused = lamps[0].paused if lamps else False
@@ -181,9 +187,12 @@ def draw_hud(screen, term_h, term_w, lamps, ch, speed):
         'Space:Resume' if paused else 'Space:Pause',
         'C:Colors',
         'B/V:Blobs',
+        'T:Trails*' if trails else 'T:Trails',
         'R:Reset',
         'H:Hide',
     ]
+    if bicolor:
+        parts.append('[A+B]')
     hud = '  '.join(parts)
     try:
         screen.addstr(hud_y, max(0, (term_w - len(hud)) // 2),
@@ -236,9 +245,12 @@ def _run_lamp(screen, config, deadline=None):
     """Run the lamp animation. Returns True to go back to menu, False to quit."""
     ch = ColorHelper(config['theme'])
     ch.setup()
+    bicolor_theme = config.get('bicolor')
+    if bicolor_theme:
+        ch.set_secondary_theme(bicolor_theme)
 
-    is_freestyle = config['style'] == 'freestyle'
-    lamp_count = 1 if is_freestyle else config['count']
+    is_fullscreen = config['style'] in ('freestyle', 'fireplace')
+    lamp_count = 1 if is_fullscreen else config['count']
 
     term_h, term_w = screen.getmaxyx()
     body_w, body_h, num_balls, ball_r, base_h, cap_h = calculate_lamp_dims(
@@ -248,9 +260,10 @@ def _run_lamp(screen, config, deadline=None):
     for _ in range(lamp_count):
         lamps.append(Lamp(config['style'], body_w, body_h,
                           config['flow'], num_balls, ball_r, base_h, cap_h,
-                          freestyle=is_freestyle))
+                          freestyle=is_fullscreen,
+                          bicolor=bool(bicolor_theme)))
 
-    positions = layout_lamps(lamps, term_w, term_h) if not is_freestyle else [(0, 0)]
+    positions = layout_lamps(lamps, term_w, term_h) if not is_fullscreen else [(0, 0)]
     theme_idx = THEME_ORDER.index(config['theme'])
     show_hud = True
 
@@ -275,7 +288,7 @@ def _run_lamp(screen, config, deadline=None):
                 term_w, term_h, len(lamps), config['size'], config['style'])
             for lamp in lamps:
                 lamp.resize(body_w, body_h, base_h, cap_h)
-            positions = layout_lamps(lamps, term_w, term_h) if not is_freestyle else [(0, 0)]
+            positions = layout_lamps(lamps, term_w, term_h) if not is_fullscreen else [(0, 0)]
         elif key == ord(' '):
             for lamp in lamps:
                 lamp.paused = not lamp.paused
@@ -296,6 +309,12 @@ def _run_lamp(screen, config, deadline=None):
                 lamp.remove_ball()
         elif key in (ord('h'), ord('H')):
             show_hud = not show_hud
+        elif key in (ord('t'), ord('T')):
+            # Toggle slow-shutter trails on every active lamp
+            for lamp in lamps:
+                lamp.trails = not lamp.trails
+                if not lamp.trails:
+                    lamp.trail_buffer = None
         elif key in (ord('r'), ord('R')):
             lamps.clear()
             body_w, body_h, num_balls, ball_r, base_h, cap_h = calculate_lamp_dims(
@@ -303,8 +322,9 @@ def _run_lamp(screen, config, deadline=None):
             for _ in range(lamp_count):
                 lamps.append(Lamp(config['style'], body_w, body_h,
                                   config['flow'], num_balls, ball_r, base_h, cap_h,
-                                  freestyle=is_freestyle))
-            positions = layout_lamps(lamps, term_w, term_h) if not is_freestyle else [(0, 0)]
+                                  freestyle=is_fullscreen,
+                                  bicolor=bool(bicolor_theme)))
+            positions = layout_lamps(lamps, term_w, term_h) if not is_fullscreen else [(0, 0)]
 
         for lamp in lamps:
             lamp.update()
@@ -312,16 +332,18 @@ def _run_lamp(screen, config, deadline=None):
         screen.erase()
 
         for lamp, (x, y) in zip(lamps, positions):
-            if is_freestyle:
+            if is_fullscreen:
                 lamp.render_freestyle(screen, x, y, ch)
             else:
                 lamp.render(screen, x, y, ch)
 
-        if not is_freestyle:
+        if not is_fullscreen:
             draw_shelf(screen, positions, lamps, term_w, ch)
         if show_hud:
             draw_hud(screen, term_h, term_w, lamps, ch,
-                     lamps[0].speed_mult if lamps else 1.0)
+                     lamps[0].speed_mult if lamps else 1.0,
+                     trails=bool(lamps and lamps[0].trails),
+                     bicolor=bool(bicolor_theme))
 
         try:
             screen.noutrefresh()
