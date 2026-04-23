@@ -4,6 +4,22 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] - 2026-04-22
+
+### Added
+- **4 New Themes** - Cyberpunk (neon pink/cyan), Matrix (hacker greens), Oceanic (deep sea blues), and Campfire (cozy golden core through orange and red to dark ember glow at the edges, over a black night sky).
+- **Procedural 3D Campfire Logs & Pine Forest** - The `fireplace` style now features a high-fidelity, procedurally generated log structure at the base. Includes 3D-shaded bark textures, concentric wood rings on log ends, glowing cracks/embers, and a scattered ash bed. The **Campfire theme** renders a layered **pine tree silhouette background** with rolling hills and a starry night sky.
+- **Warm Firelight Glow on Forest Floor** - A radial amber/orange-brown glow emanates from the campfire center onto the forest floor, simulating warm light cast by the flames.
+- **Licking Flame Animation** - Upgraded the fire animation with teardrop-shaped embers and sine-wave "licking" motion for the flame tails, creating an organic waving effect.
+- **Sustained Flame Core** - Added a solid, swaying procedural flame pillar that emerges from the logs, providing a continuous core of fire.
+- **Flame Shaping** - Revised ember temperature model forms a natural, triangular flame shape by cooling side embers faster than those in the center.
+
+### Changed
+- **Campfire palette corrected** - Flame colors now flow from dark maroon at the outer ember glow through red → orange → warm orange → golden yellow at the hottest center, matching how real fire looks (previously the gradient was inverted).
+- **Wider campfire ember spawn** - Embers now spawn with an 8% Gaussian spread (was 4%), giving the fire a fuller, more natural base that matches the log width.
+- **`ColorHelper` composite rendering** - Integrated procedural log and forest rendering into the half-block pipeline with true color compositing.
+
+
 ## [1.5.0] - 2026-04-13
 
 ### Added

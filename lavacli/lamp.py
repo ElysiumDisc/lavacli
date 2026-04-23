@@ -231,11 +231,11 @@ FLOW_PARAMS = {
     'fireplace': {
         # Embers rise, cool, fade. Internal flow used only by the
         # 'fireplace' style regardless of the user-picked flow.
-        'gravity': -0.022,        # NEGATIVE = upward (rising embers)
+        'gravity': -0.025,        # NEGATIVE = upward (rising embers)
         'buoyancy': 0.0,          # temp-based lift disabled; gravity handles it
-        'damping': 0.985,
-        'random_force': 0.012,    # strong flicker/jitter
-        'swirl': 0.004,           # slight updraft curl
+        'damping': 0.98,
+        'random_force': 0.025,    # stronger flicker/jitter
+        'swirl': 0.006,           # slight updraft curl
         'bounce': 0.0,            # no wall bounce; embers exit the top
         'heat_rate': 0.0,         # spawn hot, cool monotonically
         'cool_rate': 0.022,
@@ -341,7 +341,8 @@ class Lamp:
         if style == 'fireplace':
             # Ember cloud: many small particles spawned at the bottom, hot
             for i in range(num_balls * 2):
-                x = random.uniform(1, body_width - 1)
+                x = random.gauss(body_width / 2, body_width * 0.08)
+                x = max(1.0, min(body_width - 1.0, x))
                 y = random.uniform(self.phys_height * 0.85,
                                    self.phys_height - 0.5)
                 b = Ball(x, y, ball_radius * 0.6,
@@ -493,6 +494,7 @@ class Lamp:
 
         # Fireplace: inverted gravity + monotonic cooling + recycle at top
         if self.style == 'fireplace':
+            self._noise_time += 0.05 * self.speed_mult
             self._update_fireplace()
             return
 
@@ -564,9 +566,14 @@ class Lamp:
             ball.y += ball.vy * sm
 
             # Cool as a function of height: hot at bottom (t=1), cold at top.
-            height_frac = max(0.0, min(1.0, 1.0 - ball.y / phys_h))
+            height_frac = max(0.0, min(1.0, 1.0 - ball.y / (phys_h * 0.75)))
+            # Realistic flame shape: hotter in the center, cooler at the sides
+            cx_center = self.body_width / 2
+            dx_norm = abs(ball.x - cx_center) / (self.body_width / 2)
+            # Center bias: side embers cool much faster (forms triangular shape)
+            shape_bias = (1.0 - dx_norm) ** 1.5
             # Ease out: embers hold brightness for a while then fade near top
-            ball.temp = max(0.0, (1.0 - height_frac) ** 1.4)
+            ball.temp = max(0.0, ((1.0 - height_frac) ** 1.4) * shape_bias)
 
             # Soft horizontal wrap: nudge instead of bounce
             if ball.x < 0.5:
@@ -578,11 +585,13 @@ class Lamp:
 
             # Recycle: if an ember escaped the top or faded, respawn at bottom
             if ball.y < 0.0 or ball.temp < 0.04:
-                ball.x = random.uniform(1, self.body_width - 1)
-                ball.y = random.uniform(phys_h * 0.88, phys_h - 0.5)
-                ball.vx = random.uniform(-0.15, 0.15)
-                ball.vy = random.uniform(-0.3, -0.1)
-                ball.temp = random.uniform(0.8, 1.0)
+                # Spawn denser towards the center
+                spawn_x = random.gauss(self.body_width / 2, self.body_width * 0.08)
+                ball.x = max(1, min(self.body_width - 1, spawn_x))
+                ball.y = random.uniform(phys_h * 0.90, phys_h - 0.2)
+                ball.vx = random.uniform(-0.1, 0.1)
+                ball.vy = random.uniform(-0.4, -0.2)
+                ball.temp = random.uniform(0.9, 1.0)
 
     # ----- Metaball field -----
 
@@ -593,7 +602,18 @@ class Lamp:
         fireplace = (self.style == 'fireplace')
         for ball in self.balls:
             dx = px - ball.x
-            dy = (py - ball.y) * 0.55  # slight vertical squash for organic blobs
+            dy_base = (py - ball.y)
+            if fireplace:
+                # Flame shape: squashed bottom, long tail pointing up
+                if dy_base > 0:
+                    dy = dy_base * 1.2
+                else:
+                    dy = dy_base * 0.3
+                    # Licking flame wave motion
+                    dx += math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_base * 0.4
+            else:
+                dy = dy_base * 0.55  # slight vertical squash for organic blobs
+
             d_sq = dx * dx + dy * dy
             if d_sq < 0.001:
                 d_sq = 0.001
@@ -602,6 +622,25 @@ class Lamp:
             if fireplace:
                 contribution *= ball.temp
             total += contribution
+        
+        if fireplace:
+            # Sustained central flame core pillar emerging from logs
+            bot = self.phys_height - 1.5
+            if py < bot:
+                dy_p = bot - py
+                h_max = self.phys_height * 0.45
+                h_frac = max(0.0, 1.0 - dy_p / h_max)
+                if h_frac > 0:
+                    cx = self.body_width / 2
+                    # Pillar sways organically
+                    sway = math.sin(self._noise_time * 2.8 - py * 0.12) * (1.0 - h_frac) * 3.5
+                    dx_p = px - (cx + sway)
+                    # Radius tapers: thick at base, thin at top
+                    r_p = self.body_width * 0.08 * (h_frac ** 1.5)
+                    if r_p > 0.1:
+                        pillar_contrib = (r_p * r_p) / (dx_p * dx_p + 0.6)
+                        total += pillar_contrib * (h_frac ** 0.5) * 2.5
+        
         return total
 
     def compute_field_bicolor(self, px, py):
@@ -617,7 +656,16 @@ class Lamp:
         fireplace = (self.style == 'fireplace')
         for ball in self.balls:
             dx = px - ball.x
-            dy = (py - ball.y) * 0.55
+            dy_base = (py - ball.y)
+            if fireplace:
+                if dy_base > 0:
+                    dy = dy_base * 1.2
+                else:
+                    dy = dy_base * 0.3
+                    dx += math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_base * 0.4
+            else:
+                dy = dy_base * 0.55
+
             d_sq = dx * dx + dy * dy
             if d_sq < 0.001:
                 d_sq = 0.001
@@ -628,8 +676,26 @@ class Lamp:
                 sum_b += c
             else:
                 sum_a += c
+        
+        total = sum_a + sum_b
+        if fireplace:
+            # Sustained central flame core pillar (bicolor)
+            bot = self.phys_height - 1.5
+            if py < bot:
+                dy_p = bot - py
+                h_max = self.phys_height * 0.45
+                h_frac = max(0.0, 1.0 - dy_p / h_max)
+                if h_frac > 0:
+                    cx = self.body_width / 2
+                    sway = math.sin(self._noise_time * 2.8 - py * 0.12) * (1.0 - h_frac) * 3.5
+                    dx_p = px - (cx + sway)
+                    r_p = self.body_width * 0.08 * (h_frac ** 1.5)
+                    if r_p > 0.1:
+                        pillar_contrib = (r_p * r_p) / (dx_p * dx_p + 0.6)
+                        total += pillar_contrib * (h_frac ** 0.5) * 2.5
+        
         pid = 1 if sum_b > sum_a else 0
-        return (sum_a + sum_b, pid)
+        return (total, pid)
 
     def _compute_noise_field(self, px, py):
         """Perlin noise field for liquid flow. Returns value in metaball-compatible range."""
@@ -709,6 +775,142 @@ class Lamp:
         self._render_base(screen, body_x, body_y + self.body_height,
                           body_bounds[-1], ch)
 
+    def _get_forest_bg_color(self, px, py):
+        """Returns ANSI color code for layered pine tree silhouette background, or None."""
+        # Rolling ground hill at the bottom
+        ground_y = self.phys_height - 1.5 - math.sin(px * 0.12) * 2.0
+        if py > ground_y:
+            # Warm campfire glow radiating from the fire center onto the ground
+            cx = self.body_width / 2
+            dist_norm = abs(px - cx) / max(1.0, self.body_width * 0.30)
+            depth = (py - ground_y) / max(1.0, 2.5)
+            warmth = max(0.0, (1.0 - dist_norm ** 1.2) * (1.0 - depth * 0.6))
+            if warmth > 0.65:
+                return 130   # warm orange-brown (firelit ground)
+            elif warmth > 0.30:
+                return 94    # darker brown
+            return 232  # dark ground
+
+        # Layered conifer silhouettes: (spacing, slope, height_var, base_y_off, color_main, color_edge)
+        layers = [
+            # Near (foreground) - Dark Green
+            (32.0, 0.45, 20.0, -10.0, 22, 28),
+            # Midground - Dark Grey
+            (18.0, 0.32, 12.0, 5.0, 235, 236),
+            # Distant - Almost Black
+            (10.0, 0.22, 8.0, 15.0, 233, 234),
+        ]
+
+        for spacing, slope, h_var, y_off, c_main, c_edge in layers:
+            # Deterministic local grid
+            grid_x = int(px / spacing)
+            for dx in (-1, 0, 1):
+                idx = grid_x + dx
+                # Simple hash for height and x-offset
+                h = (idx * 17 ^ idx * 31) % 100 / 100.0
+                tree_x = (idx + 0.5 + (h - 0.5) * 0.6) * spacing
+                tree_top_y = y_off + (1.0 - h) * h_var
+                
+                if py > tree_top_y:
+                    dy = py - tree_top_y
+                    # Conifer shape: triangular branches with jagged edges
+                    # Branch layers using a sine wave modifier on width
+                    jagged = math.sin(dy * 1.6) * 1.5 + math.sin(dy * 3.5) * 0.5
+                    width = dy * slope + jagged
+                    
+                    dist_to_center = abs(px - tree_x)
+                    if dist_to_center < width:
+                        # Edge highlight for pixel-art depth
+                        if dist_to_center > width - 1.2:
+                            return c_edge
+                        return c_main
+
+        # Night sky stars (sparse hash)
+        star_h = (int(px) * 73 ^ int(py) * 97) % 1200
+        if star_h == 0 and py < self.phys_height * 0.5:
+            return 250  # Bright star
+        elif star_h == 1 and py < self.phys_height * 0.7:
+            return 241  # Dim star
+            
+        return None
+
+    def _get_campfire_log_color(self, px, py):
+        """Returns ANSI color code for pixel-art campfire logs, or None if no log/ember."""
+        cx = self.body_width / 2
+        bot = self.phys_height - 0.5
+        # Scale campfire structure to terminal width
+        L = min(28.0, self.body_width * 0.6)
+        if py < bot - L:
+            return None
+
+        # x1, y1, x2, y2, radius (in physical half-block units)
+        logs = [
+            # Back upright log
+            (cx + L * 0.1, bot + 2, cx - L * 0.2, bot - L * 0.8, L * 0.15),
+            # Left leaning log
+            (cx - L * 0.5, bot + 2, cx + L * 0.15, bot - L * 0.7, L * 0.18),
+            # Right leaning log
+            (cx + L * 0.5, bot + 1, cx - L * 0.1, bot - L * 0.75, L * 0.18),
+            # Front horizontal log
+            (cx - L * 0.4, bot, cx + L * 0.4, bot - L * 0.1, L * 0.22)
+        ]
+
+        best_z = -1
+        best_c = None
+
+        for i, (x1, y1, x2, y2, r) in enumerate(logs):
+            dx = x2 - x1
+            dy = y2 - y1
+            l2 = dx * dx + dy * dy
+            if l2 == 0: continue
+
+            # Distance to line segment
+            t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / l2))
+            proj_x = x1 + t * dx
+            proj_y = y1 + t * dy
+            d = math.hypot(px - proj_x, py - proj_y)
+
+            if d < r:
+                # Z-order depth for layering
+                z = i * 100 + (r - d)
+                if z > best_z:
+                    best_z = z
+                    norm_d = d / r
+                    # Wood ends (rings) at segments boundaries
+                    if t < 0.05 or t > 0.95:
+                        ring = int(norm_d * 5)
+                        best_c = 137 if ring % 2 == 0 else 94
+                    else:
+                        # Bark texture (longitudinal stripes)
+                        stripe = int((norm_d + t * 2.0) * 10) % 3
+                        if norm_d < 0.4:
+                            best_c = 130 if stripe == 0 else 94
+                        elif norm_d < 0.7:
+                            best_c = 94 if stripe == 0 else 52
+                        else:
+                            best_c = 52 if stripe == 0 else 234
+
+                        # Glowing cracks and hot ash near bottom
+                        if py > bot - L * 0.4:
+                            crack = (int(px * 1.3) ^ int(py * 1.7)) % 7
+                            if crack == 0 and norm_d > 0.5:
+                                best_c = 202 if (int(px) ^ int(py)) % 2 == 0 else 196
+                            elif crack == 1 and py > bot - L * 0.15:
+                                best_c = 245  # Ash
+
+        # Ember bed underneath everything
+        if best_c is None and py > bot - L * 0.2:
+            dx = (px - cx) / (L * 0.7)
+            dy = (py - bot) / (L * 0.25)
+            if dx * dx + dy * dy < 1.0:
+                ember_noise = (int(px * 2.3) ^ int(py * 3.1)) % 5
+                if ember_noise == 0: best_c = 196
+                elif ember_noise == 1: best_c = 202
+                elif ember_noise == 2: best_c = 52
+                else: best_c = 232
+
+        return best_c
+
     def render_freestyle(self, screen, x_off, y_off, ch):
         """Render fullscreen lava with no lamp frame."""
         if self.trails:
@@ -728,6 +930,33 @@ class Lamp:
                     t_pid = b_pid = 0
                 tl = self.field_to_level(ft)
                 bl = self.field_to_level(fb)
+
+                # Procedural campfire composite (fireplace style + campfire theme)
+                if self.style == 'fireplace' and ch._has_256:
+                    t_bg = None
+                    b_bg = None
+                    if ch.theme_name == 'campfire':
+                        t_bg = self._get_forest_bg_color(px, py_t + 0.5)
+                        b_bg = self._get_forest_bg_color(px, py_b + 0.5)
+
+                    t_log = self._get_campfire_log_color(px, py_t + 0.5)
+                    b_log = self._get_campfire_log_color(px, py_b + 0.5)
+
+                    if t_log is not None or b_log is not None or t_bg is not None or b_bg is not None:
+                        # Composite Layering: Background -> Lava/Embers -> Logs
+                        tc = ch._color_for_level(tl, t_pid)
+                        bc = ch._color_for_level(bl, b_pid)
+
+                        # If cell half is empty liquid, show forest background
+                        if tl == 0 and t_bg is not None: tc = t_bg
+                        if bl == 0 and b_bg is not None: bc = b_bg
+
+                        # Logs always on top
+                        if t_log is not None: tc = t_log
+                        if b_log is not None: bc = b_log
+
+                        ch.draw_colored_cell(screen, sy, x_off + col, tc, bc)
+                        continue
 
                 if self.trails:
                     entry = self.trail_buffer[row][col]

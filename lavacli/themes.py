@@ -151,12 +151,61 @@ THEMES = {
         'glow': 54,
         'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
+    'campfire': {
+        'name': 'Campfire',
+        'lava': [88, 160, 202, 208, 220],           # dark maroon edge -> red -> orange -> golden core
+        'liquid': 232,                              # black night sky
+        'rim': 52,                                  # very dark maroon ember halo
+        'base_color': 94,                           # brown logs
+        'base_mid': 130,
+        'base_shadow': 52,
+        'border': 16,
+        'glow': 52,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
+    },
+    'cyberpunk': {
+        'name': 'Cyberpunk',
+        'lava': [201, 199, 51, 45, 33],             # hot pink -> cyan -> blue
+        'liquid': 16,                               # black
+        'rim': 127,                                 # dark purple glow
+        'base_color': 240,
+        'base_mid': 237,
+        'base_shadow': 234,
+        'border': 16,
+        'glow': 53,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
+    },
+    'matrix': {
+        'name': 'Matrix',
+        'lava': [46, 40, 34, 28, 22],               # neon green -> dark green
+        'liquid': 232,                              # black
+        'rim': 22,                                  # dark green glow
+        'base_color': 240,
+        'base_mid': 237,
+        'base_shadow': 234,
+        'border': 16,
+        'glow': 22,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
+    },
+    'oceanic': {
+        'name': 'Oceanic',
+        'lava': [51, 45, 39, 33, 27],               # cyan -> deep blue
+        'liquid': 17,                               # dark navy
+        'rim': 18,                                  # deep blue glow
+        'base_color': 240,
+        'base_mid': 237,
+        'base_shadow': 234,
+        'border': 16,
+        'glow': 18,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
+    },
 }
 
 THEME_ORDER = [
     'yellow_red', 'blue_white', 'clear_orange', 'purple_haze',
     'neon_green', 'blue_purple', 'clear_red', 'sunset',
     'psychedelic', 'mono', 'koi_pond', 'aurora',
+    'campfire', 'cyberpunk', 'matrix', 'oceanic',
 ]
 
 # ---------------------------------------------------------------------------
@@ -349,6 +398,11 @@ class ColorHelper:
         self._dim_pair = pair_id
         pair_id += 1
 
+        # Wood logs color (brown/tan)
+        curses.init_pair(pair_id, 94, -1)
+        self._log_pair = pair_id
+        pair_id += 1
+
         self._next_pair_id = pair_id
 
     def _setup_basic(self):
@@ -371,7 +425,7 @@ class ColorHelper:
         for j in range(1, self.num_levels + 1):
             self.pair_map[(6, j)] = 2
             self.pair_map[(j, 6)] = 2
-        self.pair_map[(6, 6)] = 2
+            self.pair_map[(6, 6)] = 2
         self.pair_map[(0, -1)] = 4
         self._base_pair = 3
         self._base_mid_pair = 3
@@ -389,6 +443,7 @@ class ColorHelper:
         self._highlight_pair = 3
         self._accent_pair = 1
         self._dim_pair = 3
+        self._log_pair = 3
 
     def get_pair(self, fg_level, bg_level):
         """Get curses color_pair attr. Level: -1=default, 0=liquid, 1-5=lava, 6=rim."""
@@ -436,6 +491,10 @@ class ColorHelper:
     @property
     def dim_attr(self):
         return curses.color_pair(self._dim_pair)
+
+    @property
+    def log_attr(self):
+        return curses.color_pair(self._log_pair)
 
     def set_secondary_theme(self, theme_name):
         """Enable bi-color rendering: palette_id=1 cells use this theme's palette.

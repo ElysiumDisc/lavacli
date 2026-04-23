@@ -38,7 +38,7 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 ## Features
 
 - **12 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), Koi Pond (fullscreen animated fish with lily pads), Fireplace (fullscreen rising embers), and Donut (fullscreen spinning ASCII donut with theme-cycling sprinkles)
-- **12 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, Koi Pond, and Aurora - inspired by classic 1992-2004 Lava Library color codes
+- **16 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, Koi Pond, Aurora, Campfire, Cyberpunk, Matrix, and Oceanic - inspired by classic 1992-2004 Lava Library color codes and modern neon aesthetics
 - **Bi-color Lava** - Mix two themes in a single lamp (like the 90s red/blue Mathmos bi-color lamps) via `--bicolor THEME_B` or the menu's TINT field. Half the blobs carry each palette and merge naturally at their boundaries
 - **Motion Trails** - Press `T` during animation to toggle slow-shutter trails; each blob paints a soft fading comet-tail behind it. Works on all lamp and fullscreen styles
 - **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
@@ -130,7 +130,7 @@ lavacli --style donut
 | Flag | Values | Description |
 |------|--------|-------------|
 | `--style` | `classic`, `slim`, `globe`, `lava`, `diamond`, `cylinder`, `pear`, `rocket`, `freestyle`, `koipond`, `fireplace`, `donut` | Lamp style |
-| `--theme` | `yellow_red`, `blue_white`, `clear_orange`, `purple_haze`, `neon_green`, `blue_purple`, `clear_red`, `sunset`, `psychedelic`, `mono`, `koi_pond`, `aurora` | Color theme |
+| `--theme` | `yellow_red`, `blue_white`, `clear_orange`, `purple_haze`, `neon_green`, `blue_purple`, `clear_red`, `sunset`, `psychedelic`, `mono`, `koi_pond`, `aurora`, `campfire`, `cyberpunk`, `matrix`, `oceanic` | Color theme |
 | `--flow` | `classic`, `chaotic`, `zen`, `bouncy`, `swirl`, `liquid` | Flow physics |
 | `--count` | `1`–`6` | Number of lamps side by side |
 | `--size` | `S`, `M`, `L`, `XL`, `G` | 11.5" / 14.5" / 16.3" / 17" / 27" Grande |
@@ -205,6 +205,10 @@ Inspired by the classic 1992-2004 Lava Library color codes with dark bases:
 | Monochrome | Gray-to-white | Black |
 | Koi Pond | White-salmon-orange koi gradient | Teal water (pairs with lily pads) |
 | Aurora | Violet-magenta-green-cyan ribbons | Near-black night sky (pairs with Fireplace) |
+| Campfire | Dark ember glow → red → orange → golden yellow core | Black night sky |
+| Cyberpunk | Neon pink and cyan | Black |
+| Matrix | Digital neon greens | Black |
+| Oceanic | Deep sea blues and cyans | Dark navy |
 
 ## Flow Types
 
@@ -286,7 +290,8 @@ The metallic base and cap are rendered as filled shapes using half-block charact
 
 ### Fireplace
 
-The Fireplace style reuses the metaball engine but flips gravity: a dense cloud of small "embers" spawns at the bottom with `temp=1.0` and drifts upward. Each ember's temperature decays as a function of its height — `temp = (1 - y/phys_height)^1.4` — and that temperature *scales the ember's metaball field contribution*, so cooler embers naturally dim through the lower lava levels and then through the rim-glow color before winking out entirely. Once an ember fully fades (or escapes the top of the screen), it respawns at the bottom with a fresh hot temperature. A slight outward swirl and strong random jitter give the flame a convincing flicker. Pair it with the Aurora theme for a northern-lights look, or Sunset / Clear Red for a classic hearth.
+The Fireplace style reuses the metaball engine but flips gravity: a dense cloud of small "embers" spawns at the bottom and drifts upward. Each ember's temperature decays as a function of its height and its horizontal distance from the center, forming a natural triangular flame shape. The base of the fire features a high-fidelity **procedural 3D log structure**—complete with 3D-shaded bark, concentric rings on log ends, glowing cracks, and a bed of hot ash. A **sustained procedural flame core** sways and tapers upwards from the logs, providing a solid body of fire. When using the **Campfire theme**, a lush **pine tree silhouette background** with layered conifers, rolling hills, and stars is procedurally rendered behind the fire structure.
+
 
 ### Bi-color Lava
 
