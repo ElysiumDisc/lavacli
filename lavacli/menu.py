@@ -140,7 +140,7 @@ PREVIEW_WIDTH = 22  # outer width including border
 PREVIEW_GAP = 2     # gap between menu box and preview box
 
 
-def _build_preview(style, flow, inner_w, inner_h, bicolor=False):
+def _build_preview(style, flow, inner_w, inner_h, bicolor=False, theme_name=None):
     """Build a small live preview object for the given style/flow.
 
     Returns a Lamp (for lamp styles, incl. freestyle, fireplace) or a Pond
@@ -155,9 +155,9 @@ def _build_preview(style, flow, inner_w, inner_h, bicolor=False):
     if style == 'donut':
         w = max(10, inner_w)
         h = max(6, inner_h)
-        return Donut(w, h)
+        return Donut(w, h, theme_name=theme_name)
 
-    if style in ('freestyle', 'fireplace'):
+    if style in ('freestyle', 'fireplace', 'campfire', 'xmas'):
         return Lamp(style, inner_w, inner_h, flow,
                     num_balls=5, ball_radius=max(2.5, inner_w * 0.22),
                     base_height=0, cap_height=0, freestyle=True,
@@ -185,8 +185,8 @@ def _render_preview(screen, preview, ch, px, py, inner_w, inner_h):
         preview.render(screen, ch, x_off=px, y_off=py)
         return
 
-    # Lamp
-    if preview.style == 'freestyle':
+    # Lamp — all fullscreen styles render via render_freestyle
+    if preview.style in ('freestyle', 'fireplace', 'campfire', 'xmas'):
         preview.render_freestyle(screen, px, py, ch)
         return
 
@@ -212,6 +212,7 @@ def show_menu(screen):
     ch.setup()
     ch.setup_pond_colors()
     ch.setup_donut_colors()
+    ch.setup_scene_colors()
 
     def _apply_theme(name):
         ch.change_theme(name)
@@ -396,12 +397,14 @@ def show_menu(screen):
             flow = FLOW_ORDER[selections[2]]
             tint_idx = selections[5] if len(selections) > 5 else 0
             bicolor = tint_idx > 0
+            theme_name = THEME_ORDER[selections[1]]
             new_key = (style, flow, preview_inner_w, preview_inner_h,
-                       bicolor)
+                       bicolor, selections[1])
             if preview is None or preview_key != new_key:
                 preview = _build_preview(style, flow,
                                          preview_inner_w, preview_inner_h,
-                                         bicolor=bicolor)
+                                         bicolor=bicolor,
+                                         theme_name=theme_name)
                 preview_key = new_key
 
             # Draw preview box border matching the menu box

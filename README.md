@@ -37,13 +37,15 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 
 ## Features
 
-- **12 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), Koi Pond (fullscreen animated fish with lily pads), Fireplace (fullscreen rising embers), and Donut (fullscreen spinning ASCII donut with theme-cycling sprinkles)
-- **16 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, Koi Pond, Aurora, Campfire, Cyberpunk, Matrix, and Oceanic - inspired by classic 1992-2004 Lava Library color codes and modern neon aesthetics
+- **14 Lamp Styles** - Classic, Slim, Globe, Lava, Diamond, Cylinder, Pear, Rocket (Mathmos Telstar), Freestyle (fullscreen lava), Koi Pond (fullscreen animated fish), Fireplace (fullscreen embers), Campfire (fullscreen embers + pine forest scene), Donut (fullscreen spinning ASCII donut), and Christmas (fullscreen indoor fireplace with brick surround, mantel, and stockings)
+- **17 Color Themes** - Yellow Red, Blue White, Clear Orange, Purple Haze, Neon Green, Blue Purple, Clear Red, Sunset, Psychedelic, Monochrome, Koi Pond, Aurora, Campfire, Cyberpunk, Matrix, Oceanic, and Christmas - inspired by classic 1992-2004 Lava Library color codes and modern neon aesthetics
 - **Bi-color Lava** - Mix two themes in a single lamp (like the 90s red/blue Mathmos bi-color lamps) via `--bicolor THEME_B` or the menu's TINT field. Half the blobs carry each palette and merge naturally at their boundaries
 - **Motion Trails** - Press `T` during animation to toggle slow-shutter trails; each blob paints a soft fading comet-tail behind it. Works on all lamp and fullscreen styles
 - **6 Flow Types** - Classic, Chaotic, Zen, Bouncy, Swirl, and Liquid (Perlin noise organic flow)
 - **Koi Pond Mode** - Fullscreen animated koi pond with 6-10 sage-green lily pads scattered across the water and colorized fish (6 real koi varieties: Kohaku, Sanke, Showa, Tancho, Ogon, Asagi) using 14-segment skeletal physics, pectoral fins, and fanning tail fins
-- **Donut Mode** - Fullscreen spinning ASCII donut (Andy Sloane's donut.c geometry) rendered entirely in theme colors. Each lit surface point picks its palette from the theme list so the whole donut cycles through every color theme as it spins. 8 sprinkle patterns via `B`/`V` — solid theme-cycle, ring bands, tube stripes, confetti, hoops, speckle, and more
+- **Campfire Mode** - Dedicated fullscreen campfire with rising ember physics and a layered pine forest silhouette background: three depth layers of conifers, rolling snowy ground with warm firelight glow, and a starry night sky
+- **Christmas Fireplace Mode** - Fullscreen indoor Christmas fireplace: red brick surround with lintel, wooden mantel shelf, two Christmas stockings with white cuffs, a procedural dancing hearth flame (black backdrop tapering from white-hot center to dark red edges, with time-based flicker), metaball embers rising on top for depth, stone hearth, and a warm dark room with hardwood floor
+- **Donut Mode** - Fullscreen spinning ASCII donut (Andy Sloane's donut.c geometry) rendered entirely in theme colors. 5 shade modes via `B`/`V` — Smooth, Glow, Bold, Dim, and Iced (pink icing on upward-facing surfaces with golden dough)
 - **1-6 Lamps** - Display multiple lava lamps side by side
 - **5 Sizes** - 11.5", 14.5", 16.3", 17", and 27" Grande (default)
 - **Freestyle Mode** - Fullscreen lava with no lamp frame, filling the entire terminal
@@ -117,20 +119,26 @@ lavacli --random --style freestyle --duration 600
 # Just randomize everything
 lavacli --random
 
+# Cozy campfire scene (pine forest + rising embers)
+lavacli --style campfire
+
 # Cozy fireplace with Aurora-night-sky embers
 lavacli --style fireplace --theme aurora
+
+# Christmas indoor fireplace
+lavacli --style xmas
 
 # Classic bi-color lamp: yellow/red mixed with blue/white
 lavacli --theme yellow_red --bicolor blue_white
 
-# Big spinning donut with theme-cycling sprinkles
+# Big spinning donut
 lavacli --style donut
 ```
 
 | Flag | Values | Description |
 |------|--------|-------------|
-| `--style` | `classic`, `slim`, `globe`, `lava`, `diamond`, `cylinder`, `pear`, `rocket`, `freestyle`, `koipond`, `fireplace`, `donut` | Lamp style |
-| `--theme` | `yellow_red`, `blue_white`, `clear_orange`, `purple_haze`, `neon_green`, `blue_purple`, `clear_red`, `sunset`, `psychedelic`, `mono`, `koi_pond`, `aurora`, `campfire`, `cyberpunk`, `matrix`, `oceanic` | Color theme |
+| `--style` | `classic`, `slim`, `globe`, `lava`, `diamond`, `cylinder`, `pear`, `rocket`, `freestyle`, `koipond`, `fireplace`, `campfire`, `donut`, `xmas` | Lamp style |
+| `--theme` | `yellow_red`, `blue_white`, `clear_orange`, `purple_haze`, `neon_green`, `blue_purple`, `clear_red`, `sunset`, `psychedelic`, `mono`, `koi_pond`, `aurora`, `campfire`, `cyberpunk`, `matrix`, `oceanic`, `xmas` | Color theme |
 | `--flow` | `classic`, `chaotic`, `zen`, `bouncy`, `swirl`, `liquid` | Flow physics |
 | `--count` | `1`–`6` | Number of lamps side by side |
 | `--size` | `S`, `M`, `L`, `XL`, `G` | 11.5" / 14.5" / 16.3" / 17" / 27" Grande |
@@ -184,8 +192,10 @@ Run `lavacli --help` for the full list.
 | Rocket | Mathmos Telstar rocket ship — cylindrical chrome body, pointed nose, three swept fins, chrome highlight stripe |
 | Freestyle | No lamp frame - fullscreen lava fills the terminal |
 | Koi Pond | Fullscreen animated koi pond with sage-green lily pads and colorized swimming fish |
-| Fireplace | Fullscreen rising embers - hot metaballs spawn at the bottom, drift upward with flicker, cool and fade at the top, then recycle |
-| Donut | Fullscreen spinning ASCII donut (Andy Sloane's donut.c) rendered in theme colors; sprinkles cycle through all 12 themes as it rotates |
+| Fireplace | Fullscreen rising embers — hot metaballs spawn at the bottom, drift upward with flicker, cool and fade at the top, then recycle |
+| Campfire | Fullscreen campfire with pine forest scene — same ember physics as Fireplace, always renders the layered conifer silhouette background with starry sky |
+| Donut | Fullscreen spinning ASCII donut (Andy Sloane's donut.c) rendered in theme colors; 5 shade modes via `B`/`V` |
+| Christmas | Fullscreen indoor Christmas fireplace — brick surround, wooden mantel, two stockings, procedural dancing hearth flame (white-hot core → orange → red → dark, with flicker), ember physics on top, stone hearth, hardwood floor |
 
 ## Themes
 

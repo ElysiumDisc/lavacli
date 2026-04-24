@@ -4,12 +4,9 @@ Geometry mirrors the deobfuscated donut.c: a torus of inner radius 1 and
 outer radius 2 is rotated about the X axis (angle A) and Z axis (angle B),
 perspective-projected, and lit by a diagonal light source.
 
-Instead of the original 12-character luminance ramp, the surface is
-rendered as multi-colored "sprinkles": each lit point picks a palette
-from THEME_ORDER based on its position on the torus plus a slowly
-advancing frame offset, so colors appear to march around the donut as
-it spins. Within each palette, the Lambertian intensity picks the shade
-so shape and depth still read cleanly.
+The surface is rendered using the active theme's 5-color lava palette.
+Lambertian intensity drives shade selection so shape and depth read cleanly.
+Press B/V to cycle shade modes; press C to change the color theme.
 """
 import math
 
@@ -38,44 +35,25 @@ DEFAULT_PHI_STEP = 0.02    # around the tube
 SCALE_X = 0.58
 SCALE_Y = 0.58
 
-# Frames between each advance of the sprinkle cycle. Lower = faster theme
-# rotation around/across the donut.
-SPRINKLE_CYCLE_FRAMES = 6
+# Shade mode names shown in the HUD.
+SHADE_MODE_NAMES = ['Smooth', 'Glow', 'Bold', 'Dim', 'Iced']
+# Smooth : linear Lambertian → 5 palette shades
+# Glow   : 5 shades + rim/specular highlight on the brightest 1/6 of L
+# Bold   : high-contrast — compresses mid-tones, emphasises highlights/shadows
+# Dim    : softer/darker — shifts all shades one step toward the darker end
+# Iced   : pink icing on upward-facing surfaces, golden dough everywhere else
 
-# Precomputed flat list of sprinkle palettes (one per theme). Each entry is
-# the theme's 5-color lava ramp, indexed by Lambertian level.
-SPRINKLE_PALETTES = [THEMES[name]['lava'] for name in THEME_ORDER]
-NUM_PALETTES = len(SPRINKLE_PALETTES)
-
-# Sprinkle patterns: (i_mult, j_mult) controls how fast the palette index
-# shifts along each torus axis. B cycles forward, V cycles backward.
-# Defaulting to (0, 0) means the whole donut shares one palette that
-# rotates through every theme over time — the most obvious "theme
-# cycling" look. Other patterns layer spatial variation on top.
-#   (0, 0): solid — whole donut shifts through every theme over time
-#   (1, 3): gentle rainbow bands wrapping the ring
-#   (5, 1): tight vertical stripes across the tube
-#   (1, 7): broad bands around the ring
-#   (3, 5): diagonal confetti grid
-#   (0, 1): color per ring segment (chunky wedges)
-#   (1, 0): color per tube cross-section (stacked hoops)
-#   (7, 7): fine speckled confetti
-SPRINKLE_PATTERNS = [
-    (0, 0),
-    (1, 3),
-    (5, 1),
-    (1, 7),
-    (3, 5),
-    (0, 1),
-    (1, 0),
-    (7, 7),
-]
+# Fixed ANSI-256 colors for the Iced shade mode (not theme-dependent).
+# Dough: dark brown shadow → bright golden-yellow
+ICING_DOUGH = (94, 130, 136, 178, 220)
+# Icing: pale pink → light pink → fuchsia → hot pink → white specular
+ICING_PINK  = (225, 219, 213, 207, 231)
 
 
 class Donut:
     """Fullscreen spinning torus. Compatible with the app's run loop."""
 
-    def __init__(self, width, height, speed_mult=1.0):
+    def __init__(self, width, height, speed_mult=1.0, theme_name=None):
         self.width = width
         self.height = height
         self.phys_h = height * 2
@@ -86,7 +64,20 @@ class Donut:
         self.frame = 0
         self.theta_step = DEFAULT_THETA_STEP
         self.phi_step = DEFAULT_PHI_STEP
-        self.sprinkle_idx = 0
+        self.shade_mode = 0
+        n = width * self.phys_h
+        self._z_buf = [-1.0e30] * n
+        self._col_buf = [None] * n
+        self.set_theme(theme_name or THEME_ORDER[0])
+
+    def set_theme(self, theme_name):
+        """Switch the palette used for rendering. Accepts any key from THEMES."""
+        if theme_name not in THEMES:
+            theme_name = THEME_ORDER[0]
+        t = THEMES[theme_name]
+        self._palette = list(t['lava'])          # 5 ANSI-256 color codes, dark→bright
+        lava = t['lava']
+        self._rim = t.get('rim', lava[-1])       # edge/specular highlight color
 
     def update(self):
         if self.paused:
@@ -99,14 +90,15 @@ class Donut:
         self.width = new_width
         self.height = new_height
         self.phys_h = new_height * 2
+        n = new_width * self.phys_h
+        self._z_buf = [-1.0e30] * n
+        self._col_buf = [None] * n
 
-    def next_sprinkle(self):
-        """Advance to the next sprinkle pattern."""
-        self.sprinkle_idx = (self.sprinkle_idx + 1) % len(SPRINKLE_PATTERNS)
+    def next_shade(self):
+        self.shade_mode = (self.shade_mode + 1) % len(SHADE_MODE_NAMES)
 
-    def prev_sprinkle(self):
-        """Go back to the previous sprinkle pattern."""
-        self.sprinkle_idx = (self.sprinkle_idx - 1) % len(SPRINKLE_PATTERNS)
+    def prev_shade(self):
+        self.shade_mode = (self.shade_mode - 1) % len(SHADE_MODE_NAMES)
 
     def render(self, screen, ch, x_off=0, y_off=0):
         w = self.width
@@ -117,8 +109,10 @@ class Donut:
         # z-buffer and color buffer, one entry per physical half-cell
         neg_inf = -1.0e30
         n_cells = w * ph
-        z = [neg_inf] * n_cells
-        col_buf = [None] * n_cells  # None = background (theme liquid)
+        z = self._z_buf
+        col_buf = self._col_buf
+        z[:] = [neg_inf] * n_cells
+        col_buf[:] = [None] * n_cells
 
         # Scale width and height independently so wide terminals get a
         # wide donut. The torus's projected radius is roughly 0.75·scale
@@ -139,22 +133,23 @@ class Donut:
         phi_step = self.phi_step
         two_pi = 2 * math.pi
 
-        # Sprinkle cycle offset: advances over time so colors rotate around
-        # the torus even when the user pauses rotation.
-        cycle_offset = self.frame // SPRINKLE_CYCLE_FRAMES
-        i_mult, j_mult = SPRINKLE_PATTERNS[self.sprinkle_idx]
+        # Hoist hot-path locals to avoid attribute lookups per pixel.
+        palette = self._palette
+        rim = self._rim
+        shade_mode = self.shade_mode
+        icing_dough = ICING_DOUGH
+        icing_pink  = ICING_PINK
 
-        # Iterate (j = theta around ring, i = phi around tube). We track
-        # integer indices alongside the angles so each surface point gets
-        # a stable palette index derived from its (i_idx, j_idx).
+        # Bold shade-map: compresses mid-tones into the extremes.
+        # [Lambertian level 0-4] → [palette index]
+        BOLD_MAP = (0, 0, 2, 4, 4)
+
         j = 0.0
-        j_idx = 0
         while j < two_pi:
             sinj = math.sin(j)
             cosj = math.cos(j)
             h = cosj + R2
             i = 0.0
-            i_idx = 0
             while i < two_pi:
                 sini = math.sin(i)
                 cosi = math.cos(i)
@@ -171,20 +166,34 @@ class Donut:
                     idx = yi * w + xi
                     if D > z[idx]:
                         z[idx] = D
-                        if L < 0.0:
-                            L = 0.0
-                        level = int(L * 5.0)
-                        if level > 4:
-                            level = 4
-                        # Pick a palette from THEME_ORDER based on surface
-                        # position + time, then pick the shade by lighting.
-                        palette_idx = (i_idx * i_mult + j_idx * j_mult
-                                       + cycle_offset) % NUM_PALETTES
-                        col_buf[idx] = SPRINKLE_PALETTES[palette_idx][level]
+                        if L > 0.0:
+                            if shade_mode == 4:   # iced: pink icing on top, dough below
+                                # ny_w = world-space Y of outward surface normal.
+                                # Positive → surface faces up → icing pools here.
+                                ny_w = (cosj * cosi * sinB
+                                        + cosj * sini * cosA * cosB
+                                        - sinj * sinA * cosB)
+                                if ny_w > 0.2:
+                                    lvl = min(4, int((ny_w - 0.2) * 3.0 + L * 1.5))
+                                    color = icing_pink[lvl]
+                                else:
+                                    color = icing_dough[min(4, int(L * 5.0))]
+                            elif shade_mode == 1:  # glow: 5 shades + rim on top 1/6
+                                lvl = int(L * 6.0)
+                                color = rim if lvl >= 5 else palette[lvl if lvl < 5 else 4]
+                            elif shade_mode == 2:  # bold: high contrast
+                                lvl = min(4, int(L * 5.0))
+                                color = palette[BOLD_MAP[lvl]]
+                            elif shade_mode == 3:  # dim: shift one step darker
+                                color = palette[max(0, min(4, int(L * 5.0)) - 1)]
+                            else:                  # smooth (default)
+                                color = palette[min(4, int(L * 5.0))]
+                        else:
+                            # Back-facing surface visible through z-buffer.
+                            color = icing_dough[0] if shade_mode == 4 else palette[0]
+                        col_buf[idx] = color
                 i += phi_step
-                i_idx += 1
             j += theta_step
-            j_idx += 1
 
         # Blit half-block pairs. None cells fall back to the theme's
         # liquid color for a dark backdrop behind the donut.
@@ -197,7 +206,6 @@ class Donut:
                 top = col_buf[t_base + col]
                 bot = col_buf[b_base + col] if b_base >= 0 else None
                 if top is None and bot is None:
-                    # Draw solid liquid cell cheaply via the standard path
                     ch.draw_cell(screen, y_off + row, x_off + col, 0, 0)
                 else:
                     ch.draw_colored_cell(screen, y_off + row, x_off + col,

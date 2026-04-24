@@ -82,4 +82,4 @@ def fbm3(x, y, z, octaves=3):
         max_val += amplitude
         amplitude *= 0.5
         frequency *= 2.0
-    return total / max_val
+    return total / max_val if max_val else 0.0

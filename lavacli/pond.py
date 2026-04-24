@@ -2,6 +2,8 @@
 import math
 import random
 
+from .themes import KOI_PATTERN_NAMES
+
 # ---------------------------------------------------------------------------
 # Fish body profile — much larger, properly fish-shaped
 # Each value is the half-width at that segment (in physical half-block cells)
@@ -153,11 +155,11 @@ class Pond:
         self.paused = False
         self.fish_list = []
         self.lily_pads = []
+        self._render_buf = [[None] * width for _ in range(height * 2)]
         self._init_fish(fish_count)
         self._init_lily_pads()
 
     def _init_fish(self, count):
-        from .themes import KOI_PATTERN_NAMES
         # Bias toward kohaku/sanke (white-with-orange) so the pond
         # visually matches the watercolor reference image
         weighted = ['kohaku', 'kohaku', 'kohaku',
@@ -232,7 +234,10 @@ class Pond:
         #   None                       -> water
         #   ('pad', shade)             -> lily pad cell
         #   (pattern, seg_idx, dist)   -> fish segment cell
-        buffer = [[None] * w for _ in range(ph)]
+        buffer = self._render_buf
+        for row in buffer:
+            for i in range(len(row)):
+                row[i] = None
 
         # Pads first so fish render on top of them
         for pad in self.lily_pads:
@@ -407,11 +412,11 @@ class Pond:
                                         new_width - 10))
             fish.target_y = max(10, min(fish.target_y * self.phys_h / old_ph,
                                         self.phys_h - 10))
+        self._render_buf = [[None] * new_width for _ in range(new_height * 2)]
         # Regenerate lily pads for the new pond dimensions
         self._init_lily_pads()
 
     def add_fish(self):
-        from .themes import KOI_PATTERN_NAMES
         x = random.uniform(15, max(16, self.width - 15))
         y = random.uniform(15, max(16, self.phys_h - 15))
         pattern = random.choice(KOI_PATTERN_NAMES)

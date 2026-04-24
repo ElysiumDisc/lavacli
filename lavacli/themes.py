@@ -199,13 +199,25 @@ THEMES = {
         'glow': 18,
         'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
     },
+    'xmas': {
+        'name': 'Christmas',
+        'lava': [124, 160, 196, 202, 214],   # dark red -> orange -> gold embers
+        'liquid': 17,                          # midnight navy sky
+        'rim': 88,                             # dark red glow edge
+        'base_color': 22,
+        'base_mid': 28,
+        'base_shadow': 16,
+        'border': 16,
+        'glow': 160,
+        'lily_pad': 65, 'lily_pad_dark': 22, 'lily_pad_rim': 107,
+    },
 }
 
 THEME_ORDER = [
     'yellow_red', 'blue_white', 'clear_orange', 'purple_haze',
     'neon_green', 'blue_purple', 'clear_red', 'sunset',
     'psychedelic', 'mono', 'koi_pond', 'aurora',
-    'campfire', 'cyberpunk', 'matrix', 'oceanic',
+    'campfire', 'cyberpunk', 'matrix', 'oceanic', 'xmas',
 ]
 
 # ---------------------------------------------------------------------------
@@ -505,7 +517,7 @@ class ColorHelper:
         """
         self._secondary_theme_name = theme_name
         self._lazy_pair_cache = {}
-        if theme_name is None or not self._has_256:
+        if theme_name is None or theme_name not in THEMES or not self._has_256:
             self._level_colors_b = None
             return
         t = THEMES[theme_name]
@@ -759,21 +771,42 @@ class ColorHelper:
             return pattern['body_main']
 
     def setup_donut_colors(self):
-        """Pre-allocate curses pairs for every theme's lava palette against
-        the current primary liquid color, plus solid (c, c) pairs. Keeps
-        donut sprinkles from silently falling back to the (liquid, liquid)
-        pair when lazy allocation can't get a new slot mid-render.
+        """Pre-allocate curses pairs for the current theme's donut palette
+        plus the fixed icing colors used in the 'Iced' shade mode.
         """
         if not self._has_256:
             return
         liquid = self.theme['liquid']
-        colors = set()
-        for theme in THEMES.values():
-            for c in theme['lava']:
-                colors.add(c)
+        colors = set(self.theme['lava'])
+        rim = self.theme.get('rim')
+        if rim:
+            colors.add(rim)
+        # Fixed icing palette (ICING_DOUGH + ICING_PINK from donut.py)
+        colors.update((94, 130, 136, 178, 220))
+        colors.update((225, 219, 213, 207, 231))
         for c in sorted(colors):
             self._lazy_color_pair(c, liquid)
             self._lazy_color_pair(c, c)
+
+    def setup_scene_colors(self):
+        """Pre-allocate curses pairs for xmas fireplace and campfire forest scene colors."""
+        if not self._has_256:
+            return
+        scene_colors = (
+            # xmas flame palette (black → dark-red → red → orange → gold → white)
+            16, 52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 231,
+            # brick, wood, hearth, wall, floor, stocking trim
+            236, 137, 94, 58, 240, 244, 237, 235, 130, 160,
+            # campfire forest layers
+            22, 28, 232, 233, 234, 250, 241,
+        )
+        for c in scene_colors:
+            self._lazy_color_pair(c, c)       # solid-block pair
+        # Warm common half-block splits: adjacent flame levels and scene bg combos
+        flame = (16, 52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 231)
+        for i in range(len(flame) - 1):
+            self._lazy_color_pair(flame[i], flame[i + 1])
+            self._lazy_color_pair(flame[i + 1], flame[i])
 
     def draw_colored_cell(self, screen, row, col, top_color, bot_color):
         """Draw a half-block pair with arbitrary ANSI-256 colors.

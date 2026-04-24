@@ -76,9 +76,15 @@ SHAPES = {
     'donut': [  # Fullscreen spinning ASCII donut (no lamp frame)
         (0.00, 1.00), (1.00, 1.00),
     ],
+    'campfire': [  # Fullscreen campfire with pine forest scene
+        (0.00, 1.00), (1.00, 1.00),
+    ],
+    'xmas': [  # Fullscreen Christmas indoor fireplace
+        (0.00, 1.00), (1.00, 1.00),
+    ],
 }
 
-SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle', 'koipond', 'fireplace', 'donut']
+SHAPE_ORDER = ['classic', 'slim', 'globe', 'lava', 'diamond', 'cylinder', 'pear', 'rocket', 'freestyle', 'koipond', 'fireplace', 'campfire', 'donut', 'xmas']
 
 # Rocket-specific nose cone (pointed tip) and fin base profiles
 ROCKET_CAP_PROFILE = [
@@ -322,8 +328,10 @@ class Lamp:
         self.base_height = 0 if freestyle else base_height
         self.cap_height = 0 if freestyle else cap_height
         # Fireplace forces its own internal physics regardless of flow pick
-        self.flow_type = 'fireplace' if style == 'fireplace' else flow_type
+        self.flow_type = 'fireplace' if style in ('fireplace', 'campfire') else flow_type
         self.params = FLOW_PARAMS[self.flow_type]
+        # Flame size for xmas style: 0=small/cozy, 1=medium, 2=large/roaring
+        self.flame_size = 1
         self.profile = SHAPES[style]
         self.ball_radius = ball_radius
         self.speed_mult = 1.0
@@ -338,7 +346,7 @@ class Lamp:
 
         # Place balls inside the glass area (not the metallic frame)
         self.balls = []
-        if style == 'fireplace':
+        if style in ('fireplace', 'campfire'):
             # Ember cloud: many small particles spawned at the bottom, hot
             for i in range(num_balls * 2):
                 x = random.gauss(body_width / 2, body_width * 0.08)
@@ -350,6 +358,8 @@ class Lamp:
                 b.temp = random.uniform(0.8, 1.0)
                 b.vy = random.uniform(-0.3, -0.1)  # initial upward kick
                 self.balls.append(b)
+        elif style == 'xmas':
+            pass  # pure procedural flame — no ball physics
         else:
             for i in range(num_balls):
                 y = random.uniform(self.phys_height * 0.55,
@@ -492,8 +502,13 @@ class Lamp:
             self._noise_time += speed * self.speed_mult
             return
 
+        # Xmas: pure procedural flame — just tick noise time, no ball physics
+        if self.style == 'xmas':
+            self._noise_time += 0.05 * self.speed_mult
+            return
+
         # Fireplace: inverted gravity + monotonic cooling + recycle at top
-        if self.style == 'fireplace':
+        if self.style in ('fireplace', 'campfire'):
             self._noise_time += 0.05 * self.speed_mult
             self._update_fireplace()
             return
@@ -911,6 +926,130 @@ class Lamp:
 
         return best_c
 
+    def _get_xmas_bg_color(self, px, py):
+        """Indoor Christmas fireplace: brick surround, wooden mantel, stockings, stone hearth."""
+        w  = float(self.body_width)
+        ph = float(self.phys_height)
+
+        mantel_top = ph * 0.25
+        mantel_bot = ph * 0.31
+        fp_left    = w  * 0.10
+        fp_right   = w  * 0.90
+        open_left  = w  * 0.22
+        open_right = w  * 0.78
+        open_top   = mantel_bot
+        lintel_h   = ph * 0.04
+        hearth_top = ph * 0.88
+
+        def brick(bx, by):
+            row = int(by / 3)
+            if int(by) % 3 == 0:
+                return 236
+            offset = 8 if row % 2 == 0 else 0
+            if int(bx + offset) % 12 == 0:
+                return 236
+            shade = (int((bx + offset) / 12) + row) % 3
+            return (88, 124, 52)[shade]
+
+        # Wooden mantel shelf
+        if mantel_top <= py < mantel_bot and fp_left <= px <= fp_right:
+            t = (py - mantel_top) / (mantel_bot - mantel_top)
+            return 137 if t < 0.2 else (94 if t < 0.65 else 58)
+
+        # Christmas stockings hanging from the mantel
+        leg_h  = ph * 0.13
+        leg_w  = w  * 0.030
+        cuff_h = ph * 0.022
+        foot_h = ph * 0.028
+        foot_w = w  * 0.048
+        for sx, sc in ((w * 0.26, 160), (w * 0.74, 196)):
+            body_bot = mantel_bot + leg_h
+            if py < mantel_bot or py > body_bot + foot_h:
+                continue
+            foot_dir = 1 if sx < w * 0.5 else -1
+            foot_cx  = sx + foot_dir * foot_w * 0.55
+            if abs(px - sx) < leg_w:
+                if py < mantel_bot + cuff_h:
+                    return 231   # white cuff
+                if py < body_bot:
+                    return sc    # stocking body
+            if body_bot - foot_h * 0.5 <= py <= body_bot + foot_h and abs(px - foot_cx) < foot_w:
+                return sc        # stocking foot
+
+        # Brick left pillar
+        if fp_left <= px < open_left and open_top <= py < hearth_top:
+            return brick(px, py)
+
+        # Brick right pillar
+        if open_right < px <= fp_right and open_top <= py < hearth_top:
+            return brick(px, py)
+
+        # Brick lintel above the opening
+        if open_left <= px <= open_right and open_top <= py < open_top + lintel_h:
+            return brick(px, py)
+
+        # Multi-tongue procedural hearth flame
+        if open_left <= px <= open_right and open_top + lintel_h <= py < hearth_top:
+            h_range = hearth_top - (open_top + lintel_h)
+            # h_base: 0 = hearth (flame base), 1 = top of opening (flame tips)
+            h_base = 1.0 - (py - (open_top + lintel_h)) / h_range
+
+            cx_open = (open_left + open_right) * 0.5
+            half_w  = (open_right - open_left) * 0.5
+
+            t = self._noise_time
+
+            # Size multipliers: 0=small/cozy, 1=medium, 2=large/roaring
+            H_MULT = (0.52, 0.80, 1.05)[self.flame_size]
+            W_MULT = (0.58, 0.80, 1.00)[self.flame_size]
+
+            # Whole flame sways left/right together
+            sway = math.sin(t * 1.4) * 0.07
+
+            # Tongue params: (x_frac_of_half_w, tip_height_frac, base_width_frac)
+            # tip_height_frac: how high above the base the tongue tip reaches (fraction of opening)
+            tongues = (
+                (sway,               1.00 * H_MULT, 0.64 * W_MULT),  # center — tallest
+                (-0.28 + sway * 0.5, 0.72 * H_MULT, 0.36 * W_MULT),  # left
+                ( 0.30 + sway * 0.5, 0.68 * H_MULT, 0.34 * W_MULT),  # right
+            )
+
+            best_heat = 0.0
+            for xf, tip_h, wf in tongues:
+                if h_base > tip_h:
+                    continue                          # above this tongue's tip
+                # rel_h: 0 = tongue tip (top), 1 = flame base (bottom/hearth)
+                rel_h = 1.0 - h_base / tip_h
+                tongue_cx = cx_open + xf * half_w
+                tongue_w  = wf * half_w * (rel_h ** 0.5)  # wide at base, narrows upward
+                # Organic edge turbulence
+                turb = math.sin(t * 3.8 + py * 0.18 + xf * 4.0) * 0.06 * tongue_w
+                tongue_w = max(0.0, tongue_w + turb)
+                dx_t = abs(px - tongue_cx)
+                if dx_t < tongue_w:
+                    intensity = (tongue_w - dx_t) / max(0.01, tongue_w)
+                    heat = intensity * (0.30 + 0.70 * rel_h)  # hotter at base
+                    if heat > best_heat:
+                        best_heat = heat
+
+            # black → dark-red → red → orange → gold → white-hot
+            FLAME = (16, 52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 231)
+            if best_heat > 0.0:
+                return FLAME[min(len(FLAME) - 1, int(best_heat * len(FLAME)))]
+            return 16   # dark backdrop between / above tongues
+
+        # Stone hearth
+        if hearth_top <= py and fp_left - w * 0.05 <= px <= fp_right + w * 0.05:
+            stone = (int(px / 7) ^ int((py - hearth_top) / 2)) % 3
+            return 240 if stone == 0 else (244 if stone == 1 else 237)
+
+        # Hardwood floor planks
+        if py >= ph * 0.94:
+            return 94 if int(px / 14) % 2 == 0 else 130
+
+        # Room wall (dark warm gray)
+        return 235
+
     def render_freestyle(self, screen, x_off, y_off, ch):
         """Render fullscreen lava with no lamp frame."""
         if self.trails:
@@ -931,11 +1070,11 @@ class Lamp:
                 tl = self.field_to_level(ft)
                 bl = self.field_to_level(fb)
 
-                # Procedural campfire composite (fireplace style + campfire theme)
-                if self.style == 'fireplace' and ch._has_256:
+                # Procedural campfire composite (fireplace/campfire style, or fireplace+campfire theme)
+                if self.style in ('fireplace', 'campfire') and ch._has_256:
                     t_bg = None
                     b_bg = None
-                    if ch.theme_name == 'campfire':
+                    if self.style == 'campfire' or ch.theme_name == 'campfire':
                         t_bg = self._get_forest_bg_color(px, py_t + 0.5)
                         b_bg = self._get_forest_bg_color(px, py_b + 0.5)
 
@@ -957,6 +1096,13 @@ class Lamp:
 
                         ch.draw_colored_cell(screen, sy, x_off + col, tc, bc)
                         continue
+
+                elif self.style == 'xmas' and ch._has_256:
+                    # Pure procedural scene — no blobs, draw background directly
+                    tc = self._get_xmas_bg_color(px, py_t + 0.5) or 235
+                    bc = self._get_xmas_bg_color(px, py_b + 0.5) or 235
+                    ch.draw_colored_cell(screen, sy, x_off + col, tc, bc)
+                    continue
 
                 if self.trails:
                     entry = self.trail_buffer[row][col]

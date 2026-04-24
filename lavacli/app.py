@@ -81,6 +81,10 @@ def _config_from_args(args):
         style = args.style
     if args.theme is not None:
         theme = args.theme
+    if style == 'campfire' and args.theme is None and not args.random:
+        theme = 'campfire'
+    if style == 'xmas' and args.theme is None and not args.random:
+        theme = 'xmas'
     if args.flow is not None:
         flow = args.flow
     if args.count is not None:
@@ -104,7 +108,7 @@ def calculate_lamp_dims(term_w, term_h, count, size_pref, style='classic'):
 
     # Fullscreen styles (freestyle / fireplace): fill the whole terminal.
     # Fireplace uses smaller, more numerous embers, handled in Lamp.__init__.
-    if style in ('freestyle', 'fireplace'):
+    if style in ('freestyle', 'fireplace', 'campfire', 'xmas'):
         body_w = term_w
         body_h = term_h - 1  # leave 1 row for HUD
         num_balls = max(8, defaults['num_balls'] * 2)
@@ -177,17 +181,20 @@ def draw_shelf(screen, positions, lamps, term_w, ch):
 
 
 def draw_hud(screen, term_h, term_w, lamps, ch, speed,
-             trails=False, bicolor=False):
+             trails=False, bicolor=False, style=None):
     """Draw the controls bar at the bottom."""
     hud_y = term_h - 1
     paused = lamps[0].paused if lamps else False
+    _FLAME_NAMES = ('Small', 'Medium', 'Large')
+    bv_label = ('B/V:Flame({})'.format(_FLAME_NAMES[lamps[0].flame_size])
+                if style == 'xmas' and lamps else 'B/V:Blobs')
     parts = [
         'Q:Quit',
         'M:Menu',
         '+/-:Speed({:.0f}%)'.format(speed * 100),
         'Space:Resume' if paused else 'Space:Pause',
         'C:Colors',
-        'B/V:Blobs',
+        bv_label,
         'T:Trails*' if trails else 'T:Trails',
         'R:Reset',
         'H:Hide',
@@ -254,7 +261,7 @@ def _run_lamp(screen, config, deadline=None):
     if bicolor_theme:
         ch.set_secondary_theme(bicolor_theme)
 
-    is_fullscreen = config['style'] in ('freestyle', 'fireplace')
+    is_fullscreen = config['style'] in ('freestyle', 'fireplace', 'campfire', 'xmas')
     lamp_count = 1 if is_fullscreen else config['count']
 
     term_h, term_w = screen.getmaxyx()
@@ -307,11 +314,19 @@ def _run_lamp(screen, config, deadline=None):
             theme_idx = (theme_idx + 1) % len(THEME_ORDER)
             ch.change_theme(THEME_ORDER[theme_idx])
         elif key in (ord('b'), ord('B')):
-            for lamp in lamps:
-                lamp.add_ball()
+            if config['style'] == 'xmas':
+                for lamp in lamps:
+                    lamp.flame_size = (lamp.flame_size + 1) % 3
+            else:
+                for lamp in lamps:
+                    lamp.add_ball()
         elif key in (ord('v'), ord('V')):
-            for lamp in lamps:
-                lamp.remove_ball()
+            if config['style'] == 'xmas':
+                for lamp in lamps:
+                    lamp.flame_size = (lamp.flame_size - 1) % 3
+            else:
+                for lamp in lamps:
+                    lamp.remove_ball()
         elif key in (ord('h'), ord('H')):
             show_hud = not show_hud
         elif key in (ord('t'), ord('T')):
@@ -348,7 +363,8 @@ def _run_lamp(screen, config, deadline=None):
             draw_hud(screen, term_h, term_w, lamps, ch,
                      lamps[0].speed_mult if lamps else 1.0,
                      trails=bool(lamps and lamps[0].trails),
-                     bicolor=bool(bicolor_theme))
+                     bicolor=bool(bicolor_theme),
+                     style=config['style'])
 
         try:
             screen.noutrefresh()
@@ -359,19 +375,20 @@ def _run_lamp(screen, config, deadline=None):
         elapsed = time.monotonic() - frame_start
         remaining = (frame_ms / 1000.0) - elapsed
         if remaining > 0:
-            time.sleep(remaining * 0.5)
+            time.sleep(remaining)
 
 
 def draw_donut_hud(screen, term_h, term_w, donut, ch):
     """Draw the controls bar for donut mode."""
+    from .donut import SHADE_MODE_NAMES
     hud_y = term_h - 1
     parts = [
         'Q:Quit',
         'M:Menu',
         '+/-:Speed({:.0f}%)'.format(donut.speed_mult * 100),
         'Space:Resume' if donut.paused else 'Space:Pause',
-        'C:Colors',
-        'B/V:Sprinkles',
+        'C:Theme',
+        'B/V:Shade({})'.format(SHADE_MODE_NAMES[donut.shade_mode]),
         'R:Reset',
         'H:Hide',
     ]
@@ -388,13 +405,10 @@ def _run_donut(screen, config, deadline=None):
     ch = ColorHelper(config['theme'])
     ch.setup()
     ch.setup_donut_colors()
-    bicolor_theme = config.get('bicolor')
-    if bicolor_theme:
-        ch.set_secondary_theme(bicolor_theme)
 
     term_h, term_w = screen.getmaxyx()
-    donut = Donut(term_w, term_h - 1)
     theme_idx = THEME_ORDER.index(config['theme'])
+    donut = Donut(term_w, term_h - 1, theme_name=config['theme'])
     show_hud = True
 
     frame_ms = 50  # ~20 fps
@@ -425,14 +439,16 @@ def _run_donut(screen, config, deadline=None):
             theme_idx = (theme_idx + 1) % len(THEME_ORDER)
             ch.change_theme(THEME_ORDER[theme_idx])
             ch.setup_donut_colors()
+            donut.set_theme(THEME_ORDER[theme_idx])
         elif key in (ord('b'), ord('B')):
-            donut.next_sprinkle()
+            donut.next_shade()
         elif key in (ord('v'), ord('V')):
-            donut.prev_sprinkle()
+            donut.prev_shade()
         elif key in (ord('h'), ord('H')):
             show_hud = not show_hud
         elif key in (ord('r'), ord('R')):
-            donut = Donut(term_w, term_h - 1, donut.speed_mult)
+            donut = Donut(term_w, term_h - 1, donut.speed_mult,
+                          theme_name=THEME_ORDER[theme_idx])
 
         donut.update()
 
@@ -451,7 +467,7 @@ def _run_donut(screen, config, deadline=None):
         elapsed = time.monotonic() - frame_start
         remaining = (frame_ms / 1000.0) - elapsed
         if remaining > 0:
-            time.sleep(remaining * 0.5)
+            time.sleep(remaining)
 
 
 def draw_pond_hud(screen, term_h, term_w, pond, ch):
@@ -543,4 +559,4 @@ def _run_pond(screen, config, deadline=None):
         elapsed = time.monotonic() - frame_start
         remaining = (frame_ms / 1000.0) - elapsed
         if remaining > 0:
-            time.sleep(remaining * 0.5)
+            time.sleep(remaining)

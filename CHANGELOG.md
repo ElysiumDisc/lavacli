@@ -4,6 +4,42 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.7.0] - 2026-04-23
+
+### Added
+
+- **`campfire` style** - A new dedicated fullscreen style (`--style campfire`) that always shows the layered pine forest silhouette scene with rolling hills, starry night sky, and warm campfire glow on the forest floor. Previously this required manually picking `--style fireplace --theme campfire`; it is now a first-class selectable style in both the CLI and the interactive menu.
+- **`xmas` Christmas Fireplace style** - A new fullscreen style (`--style xmas`) rendering an indoor Christmas fireplace: red brick surround with a solid lintel, a thick wooden mantel shelf, two Christmas stockings (red with white cuffs) hanging from the mantel, a procedural hearth flame (black backdrop → dark red → red → orange → gold → white-hot center, tapering to a tip with time-based flicker), stone hearth at the base, and a dark warm-toned room with hardwood floor. Ember physics from the `fireplace` style rise on top of the flame layer for depth. Auto-selects the Christmas color palette (dark red → orange → gold embers) when launched without `--theme`.
+- **`xmas` Christmas color theme** - Christmas ember palette auto-selected when launching `--style xmas` without an explicit `--theme`.
+
+## [1.6.2] - 2026-04-23
+
+### Changed
+
+- **Donut color system redesigned** - Colors no longer cycle automatically. The donut now renders entirely in the active theme's palette and only changes color when the user explicitly presses `C` (cycles theme) or selects a theme via `--theme` from the CLI.
+- **`--theme` flag now applies to donut mode** - Previously the flag was ignored for the donut style; it now sets the starting palette directly.
+- **`B/V` keys cycle shade modes instead of sprinkle patterns** - The old sprinkle system (which picked colors from all 16 themes simultaneously) is replaced by 4 named shading modes within the single active theme:
+  - **Smooth** — linear Lambertian shading across 5 palette levels (default)
+  - **Glow** — same as Smooth with a specular rim highlight (theme's `rim` color) applied to the top 1/6 of luminance
+  - **Bold** — high contrast; mid-tones are compressed toward the bright and dark extremes
+  - **Dim** — softer appearance; all shades shifted one step toward the darker end of the palette
+- **HUD updated** — `B/V:Sprinkles` label replaced with `B/V:Shade(Mode)` showing the active shade mode name; `C:Colors` retitled to `C:Theme` for clarity.
+- **Menu donut preview respects theme selection** — Changing the THEME field in the menu now immediately updates the color of the live donut preview panel.
+
+## [1.6.1] - 2026-04-23
+
+### Fixed
+
+- **Division by zero in Perlin noise** (`noise.py`) - `fbm3()` raised `ZeroDivisionError` when called with `octaves=0` because `max_val` was never incremented. Now returns `0.0` safely.
+- **`KeyError` on invalid bi-color theme** (`themes.py`) - `set_secondary_theme()` guarded against `None` but not against unrecognised theme names, which raised `KeyError`. The early-return guard now also checks `theme_name not in THEMES`.
+- **Frame-timing sleep burned only half the remaining budget** (`app.py`) - All three animation runners (`_run_lamp`, `_run_donut`, `_run_pond`) slept `remaining * 0.5` after a keypress instead of the full remaining frame time, causing the animation to run faster than the 20 fps target and waste CPU on rapid key input.
+
+### Performance
+
+- **Pond render buffer no longer re-allocated every frame** (`pond.py`) - The `[[None] * w for _ in range(ph)]` buffer inside `Pond.render()` was creating ~20 000 Python list objects per second at a typical terminal size. It is now cached on the instance and reset in-place each frame; only reallocated on terminal resize.
+- **Donut z-buffer and color buffer no longer re-allocated every frame** (`donut.py`) - Same pattern: `z` and `col_buf` flat lists were recreated on every `Donut.render()` call. Both are now cached on the instance and reset via slice-assignment, with reallocation only on resize.
+- **Lazy import moved to module level** (`pond.py`) - `from .themes import KOI_PATTERN_NAMES` was inside `_init_fish()` and `add_fish()`, causing an unnecessary module-cache lookup on every fish initialisation. Moved to module-level import.
+
 ## [1.6.0] - 2026-04-22
 
 ### Added
