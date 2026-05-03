@@ -33,6 +33,13 @@ FIN_EXTENSION = 3.0      # extra width for pectoral fins
 SWIM_PERIOD = 48          # frames per sinusoidal cycle
 SWIM_AMPLITUDE = 0.4     # lateral displacement amplitude
 
+# Visual bias: kohaku/sanke (white-with-orange) read best against the dark
+# water and match the watercolor reference. Used by both _init_fish and
+# add_fish so pressing 'B' doesn't drift the pond's visual style.
+_WEIGHTED_PATTERNS = ['kohaku', 'kohaku', 'kohaku',
+                      'sanke', 'sanke',
+                      'tancho', 'ogon', 'asagi', 'showa']
+
 
 class Segment:
     __slots__ = ('x', 'y')
@@ -160,15 +167,10 @@ class Pond:
         self._init_lily_pads()
 
     def _init_fish(self, count):
-        # Bias toward kohaku/sanke (white-with-orange) so the pond
-        # visually matches the watercolor reference image
-        weighted = ['kohaku', 'kohaku', 'kohaku',
-                    'sanke', 'sanke',
-                    'tancho', 'ogon', 'asagi', 'showa']
-        # Drop any weights for patterns that aren't actually defined
-        weighted = [p for p in weighted if p in KOI_PATTERN_NAMES]
+        weighted = [p for p in _WEIGHTED_PATTERNS if p in KOI_PATTERN_NAMES]
+        if not weighted:
+            weighted = list(KOI_PATTERN_NAMES) or ['kohaku']
         for i in range(count):
-            # Spread fish out across the pond
             x = random.uniform(15, max(16, self.width - 15))
             y = random.uniform(15, max(16, self.phys_h - 15))
             pattern = weighted[i % len(weighted)]
@@ -419,7 +421,10 @@ class Pond:
     def add_fish(self):
         x = random.uniform(15, max(16, self.width - 15))
         y = random.uniform(15, max(16, self.phys_h - 15))
-        pattern = random.choice(KOI_PATTERN_NAMES)
+        weighted = [p for p in _WEIGHTED_PATTERNS if p in KOI_PATTERN_NAMES]
+        if not weighted:
+            weighted = list(KOI_PATTERN_NAMES) or ['kohaku']
+        pattern = random.choice(weighted)
         self.fish_list.append(Fish(x, y, self.width, self.phys_h, pattern))
 
     def remove_fish(self):

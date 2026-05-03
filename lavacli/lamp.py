@@ -2,6 +2,7 @@
 import curses
 import math
 import random
+from bisect import bisect as _bisect
 
 from .noise import fbm3
 
@@ -277,23 +278,44 @@ SIZE_NAMES = {k: v['name'] for k, v in SIZE_DEFAULTS.items()}
 
 
 # ---------------------------------------------------------------------------
+# Pre-compute y-key arrays for binary search in _interpolate_profile.
+# All profile lists are small (10-25 entries); caching avoids per-call
+# allocation and makes bisect actually faster than linear scan.
+# ---------------------------------------------------------------------------
+_PROFILE_YKEYS = {}  # id(profile_list) -> [y0, y1, ...]
+
+def _cache_ykey(profile):
+    _PROFILE_YKEYS[id(profile)] = [p[0] for p in profile]
+
+for _v in SHAPES.values():
+    _cache_ykey(_v)
+for _prof in (BASE_PROFILE, CAP_PROFILE, CYLINDER_CAP_PROFILE,
+              CYLINDER_BASE_PROFILE, ROCKET_CAP_PROFILE, ROCKET_BASE_PROFILE):
+    _cache_ykey(_prof)
+del _cache_ykey, _prof, _v
+
+# ---------------------------------------------------------------------------
 # Interpolation helper
 # ---------------------------------------------------------------------------
 def _interpolate_profile(profile, t):
-    """Smoothstep interpolation on a [(y, width), ...] profile."""
+    """Smoothstep interpolation on a [(y, width), ...] profile.
+    Uses binary search on a pre-computed y-key array (cached at import time)."""
     t = max(0.0, min(1.0, t))
     if t <= profile[0][0]:
         return profile[0][1]
     if t >= profile[-1][0]:
         return profile[-1][1]
-    for i in range(len(profile) - 1):
-        y0, w0 = profile[i]
-        y1, w1 = profile[i + 1]
-        if y0 <= t <= y1:
-            s = (t - y0) / (y1 - y0) if y1 != y0 else 0
-            s = s * s * (3 - 2 * s)  # smoothstep
-            return w0 + s * (w1 - w0)
-    return profile[-1][1]
+    ys = _PROFILE_YKEYS.get(id(profile))
+    if ys is None:
+        ys = [p[0] for p in profile]
+    i = _bisect(ys, t, lo=1) - 1
+    if i >= len(profile) - 1:
+        i = len(profile) - 2
+    y0, w0 = profile[i]
+    y1, w1 = profile[i + 1]
+    s = (t - y0) / (y1 - y0) if y1 != y0 else 0
+    s = s * s * (3 - 2 * s)  # smoothstep
+    return w0 + s * (w1 - w0)
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +636,7 @@ class Lamp:
         if self.flow_type == 'liquid':
             return self._compute_noise_field(px, py)
         total = 0.0
-        fireplace = (self.style == 'fireplace')
+        fireplace = self.style in ('fireplace', 'campfire')
         for ball in self.balls:
             dx = px - ball.x
             dy_base = (py - ball.y)
@@ -668,7 +690,7 @@ class Lamp:
             return (self._compute_noise_field(px, py), 0)
         sum_a = 0.0
         sum_b = 0.0
-        fireplace = (self.style == 'fireplace')
+        fireplace = self.style in ('fireplace', 'campfire')
         for ball in self.balls:
             dx = px - ball.x
             dy_base = (py - ball.y)
@@ -1166,12 +1188,11 @@ class Lamp:
             # -- Glass interior: liquid background + lava metaballs --
             if self.trails:
                 self._ensure_trail_buffer()
+            # Glass bounds depend only on row; compute once per row.
+            glt, grt = self.get_glass_bounds(py_t)
+            glb, grb = self.get_glass_bounds(py_b)
             for col in range(inner_left, inner_right + 1):
                 px = col + 0.5
-
-                # Check glass bounds at each half-row
-                glt, grt = self.get_glass_bounds(py_t)
-                glb, grb = self.get_glass_bounds(py_b)
                 top_in = glt <= px <= grt
                 bot_in = glb <= px <= grb
 
@@ -1230,20 +1251,19 @@ class Lamp:
             right = min(self.body_width - 1, right)
             sy = y_off + row
 
-            for col in range(left, right + 1):
-                # Use half-block rendering for smooth edges
-                py_t = row * 2
-                py_b = row * 2 + 1
-                px = col - top_left + 0.5
-                _cp = self._get_cap_profile()
-                cap_w_t = _interpolate_profile(_cp,
-                            py_t / max(1, self.cap_height * 2)) * body_top_w
-                cap_w_b = _interpolate_profile(_cp,
-                            py_b / max(1, self.cap_height * 2)) * body_top_w
-                half_t = cap_w_t / 2
-                half_b = cap_w_b / 2
-                center = body_top_w / 2
+            # Cap shape and half-row widths depend only on row; hoist them.
+            py_t = row * 2
+            py_b = row * 2 + 1
+            _cp = self._get_cap_profile()
+            _denom = max(1, self.cap_height * 2)
+            cap_w_t = _interpolate_profile(_cp, py_t / _denom) * body_top_w
+            cap_w_b = _interpolate_profile(_cp, py_b / _denom) * body_top_w
+            half_t = cap_w_t / 2
+            half_b = cap_w_b / 2
+            center = body_top_w / 2
 
+            for col in range(left, right + 1):
+                px = col - top_left + 0.5
                 t_in = (center - half_t) <= px <= (center + half_t)
                 b_in = (center - half_b) <= px <= (center + half_b)
 
@@ -1279,22 +1299,22 @@ class Lamp:
             right = min(self.body_width - 1, right)
             sy = base_y + row
 
+            # Base shape and half-row widths depend only on row; hoist them.
+            py_t = row * 2
+            py_b = row * 2 + 1
+            _bp = self._get_base_profile()
+            ref_w = self.body_width if self.style == 'rocket' else body_bot_w
+            _denom = max(1, self.base_height * 2)
+            bw_t = _interpolate_profile(_bp, py_t / _denom) * ref_w
+            bw_b = _interpolate_profile(_bp, py_b / _denom) * ref_w
+            half_t = bw_t / 2
+            half_b = bw_b / 2
+            cx = self.body_width / 2
+
             for col in range(left, right + 1):
-                # Half-block rendering for smooth base shape
-                py_t = row * 2
-                py_b = row * 2 + 1
                 px = col + 0.5  # absolute body-grid position
-
-                _bp = self._get_base_profile()
-                ref_w = self.body_width if self.style == 'rocket' else body_bot_w
-                bw_t = _interpolate_profile(_bp,
-                            py_t / max(1, self.base_height * 2)) * ref_w
-                bw_b = _interpolate_profile(_bp,
-                            py_b / max(1, self.base_height * 2)) * ref_w
-                cx = self.body_width / 2
-
-                t_in = (cx - bw_t / 2) <= px <= (cx + bw_t / 2)
-                b_in = (cx - bw_b / 2) <= px <= (cx + bw_b / 2)
+                t_in = (cx - half_t) <= px <= (cx + half_t)
+                b_in = (cx - half_b) <= px <= (cx + half_b)
 
                 # 3-tone metallic shading matching hourglass shape:
                 # hi: top collar + foot lip (widest, catch light)
@@ -1345,7 +1365,7 @@ class Lamp:
                         return
             self.balls.pop()
 
-    def resize(self, new_width, new_height, new_base_h, new_cap_h):
+    def resize(self, new_width, new_height, new_base_h, new_cap_h, new_ball_r=None):
         """Resize the lamp, repositioning balls proportionally."""
         old_w, old_ph = self.body_width, self.phys_height
         self.body_width = new_width
@@ -1353,6 +1373,12 @@ class Lamp:
         self.phys_height = new_height * 2
         self.base_height = new_base_h
         self.cap_height = new_cap_h
+
+        # Scale ball radius to match new dimensions
+        if new_ball_r is not None:
+            self.ball_radius = new_ball_r
+        elif old_w > 0:
+            self.ball_radius *= new_width / old_w
 
         for ball in self.balls:
             ball.x = ball.x * new_width / old_w if old_w > 0 else new_width / 2

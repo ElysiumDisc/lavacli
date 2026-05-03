@@ -40,12 +40,15 @@ def _grad(h, x, y, z):
 
 def noise3(x, y, z):
     """3D Perlin noise. Returns value roughly in [-1, 1]."""
-    xi = int(math.floor(x)) & 255
-    yi = int(math.floor(y)) & 255
-    zi = int(math.floor(z)) & 255
-    xf = x - math.floor(x)
-    yf = y - math.floor(y)
-    zf = z - math.floor(z)
+    xi_f = math.floor(x)
+    yi_f = math.floor(y)
+    zi_f = math.floor(z)
+    xi = int(xi_f) & 255
+    yi = int(yi_f) & 255
+    zi = int(zi_f) & 255
+    xf = x - xi_f
+    yf = y - yi_f
+    zf = z - zi_f
     u = _fade(xf)
     v = _fade(yf)
     w = _fade(zf)

@@ -68,7 +68,25 @@ class Donut:
         n = width * self.phys_h
         self._z_buf = [-1.0e30] * n
         self._col_buf = [None] * n
+        self._build_trig_luts()
         self.set_theme(theme_name or THEME_ORDER[0])
+
+    def _build_trig_luts(self):
+        """Pre-compute sin/cos lookup tables for the fixed theta/phi steps.
+
+        Replaces ~28,000 math.sin/cos calls per frame with array lookups.
+        """
+        two_pi = 2 * math.pi
+        ts = self.theta_step
+        ps = self.phi_step
+        n_theta = int(two_pi / ts) + 1
+        n_phi = int(two_pi / ps) + 1
+        self._sinj = [math.sin(j * ts) for j in range(n_theta)]
+        self._cosj = [math.cos(j * ts) for j in range(n_theta)]
+        self._sini = [math.sin(i * ps) for i in range(n_phi)]
+        self._cosi = [math.cos(i * ps) for i in range(n_phi)]
+        self._n_theta = n_theta
+        self._n_phi = n_phi
 
     def set_theme(self, theme_name):
         """Switch the palette used for rendering. Accepts any key from THEMES."""
@@ -106,13 +124,15 @@ class Donut:
         if w <= 0 or ph <= 0:
             return
 
-        # z-buffer and color buffer, one entry per physical half-cell
+        # z-buffer and color buffer, one entry per physical half-cell.
+        # Reset in-place to avoid allocating two fresh lists per frame.
         neg_inf = -1.0e30
         n_cells = w * ph
         z = self._z_buf
         col_buf = self._col_buf
-        z[:] = [neg_inf] * n_cells
-        col_buf[:] = [None] * n_cells
+        for i in range(n_cells):
+            z[i] = neg_inf
+            col_buf[i] = None
 
         # Scale width and height independently so wide terminals get a
         # wide donut. The torus's projected radius is roughly 0.75·scale
@@ -129,10 +149,6 @@ class Donut:
         sinB = math.sin(self.B)
         cosB = math.cos(self.B)
 
-        theta_step = self.theta_step
-        phi_step = self.phi_step
-        two_pi = 2 * math.pi
-
         # Hoist hot-path locals to avoid attribute lookups per pixel.
         palette = self._palette
         rim = self._rim
@@ -144,15 +160,21 @@ class Donut:
         # [Lambertian level 0-4] → [palette index]
         BOLD_MAP = (0, 0, 2, 4, 4)
 
-        j = 0.0
-        while j < two_pi:
-            sinj = math.sin(j)
-            cosj = math.cos(j)
+        # Pre-computed sin/cos LUTs replace ~28,000 trig calls per frame
+        sinj_lut = self._sinj
+        cosj_lut = self._cosj
+        sini_lut = self._sini
+        cosi_lut = self._cosi
+        n_theta = self._n_theta
+        n_phi = self._n_phi
+
+        for ji in range(n_theta):
+            sinj = sinj_lut[ji]
+            cosj = cosj_lut[ji]
             h = cosj + R2
-            i = 0.0
-            while i < two_pi:
-                sini = math.sin(i)
-                cosi = math.cos(i)
+            for ii in range(n_phi):
+                sini = sini_lut[ii]
+                cosi = cosi_lut[ii]
                 D = 1.0 / (sini * h * sinA + sinj * cosA + K2)
                 t = sini * h * cosA - sinj * sinA
                 px = cx + scale_x * D * (cosi * h * cosB - t * sinB)
@@ -192,8 +214,6 @@ class Donut:
                             # Back-facing surface visible through z-buffer.
                             color = icing_dough[0] if shade_mode == 4 else palette[0]
                         col_buf[idx] = color
-                i += phi_step
-            j += theta_step
 
         # Blit half-block pairs. None cells fall back to the theme's
         # liquid color for a dark backdrop behind the donut.

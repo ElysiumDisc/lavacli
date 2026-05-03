@@ -679,16 +679,9 @@ class ColorHelper:
             self._fish_pairs[(color, 'full')] = pair_id
             pair_id += 1
 
-        # Cross-fish pairs for two different fish colors in same cell
-        # Pre-allocate for all unique (fg, bg) combos among fish colors
-        color_list = sorted(fish_colors)
-        for fg in color_list:
-            for bg in color_list:
-                if fg != bg and (fg, bg) not in self._fish_pairs:
-                    curses.init_pair(pair_id, fg, bg)
-                    self._fish_pairs[(fg, bg)] = pair_id
-                    pair_id += 1
-
+        # Cross-fish (fg, bg) combos are allocated lazily through
+        # _lazy_color_pair on first draw. Most pairs are never used in a
+        # given session — eager O(N²) allocation wasted ~100 pair slots.
         self._next_pair_id = pair_id
 
     def _setup_pond_basic(self):
@@ -727,9 +720,8 @@ class ColorHelper:
                 screen.addstr(row, col, '\u2588', curses.color_pair(pid))
             else:
                 # Two different fish colors: ▀ fg=top, bg=bottom
-                pid = self._fish_pairs.get((top_color, bot_color),
-                                           self._water_pair)
-                screen.addstr(row, col, '\u2580', curses.color_pair(pid))
+                screen.addstr(row, col, '\u2580',
+                              self._lazy_color_pair(top_color, bot_color))
         except curses.error:
             pass
 
@@ -753,7 +745,9 @@ class ColorHelper:
             return self.theme.get('lily_pad', 65)
         # Fish cell
         pattern_name, seg_idx, dist = cell
-        pattern = KOI_PATTERNS[pattern_name]
+        pattern = KOI_PATTERNS.get(pattern_name)
+        if pattern is None:
+            return 231  # fallback to white for unknown patterns
         # 14-segment body: 0=snout, 1=head, 2-9=body, 10-11=peduncle, 12-13=tail
         if seg_idx <= 1:
             return pattern['head']
@@ -837,7 +831,9 @@ class ColorHelper:
         self.pair_map.clear()
         self._fish_pairs = {}
         self._lazy_pair_cache = {}
+        # setup() resets _next_pair_id to just past its static allocations.
+        # Subsequent lazy allocations overwrite any orphaned pair IDs from the
+        # previous theme — safe because curses redefines on init_pair collision.
         self.setup()
-        # Re-apply secondary palette (setup resets _level_colors_a)
         if self._secondary_theme_name is not None:
             self.set_secondary_theme(self._secondary_theme_name)

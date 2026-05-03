@@ -15,7 +15,8 @@ lavacli/
 ├── lavacli/
 │   ├── __init__.py             # Package marker
 │   ├── __main__.py             # Entry point (python -m lavacli)
-│   ├── app.py                  # Main curses app loop, layout, input handling
+│   ├── app.py                  # Main curses app loop, shared _run_animation, layout, input handling
+│   ├── donut.py                # Spinning ASCII donut: torus geometry, z-buffer, trig LUTs, rendering
 │   ├── lamp.py                 # Lamp class: shapes, metaball physics, rendering
 │   ├── menu.py                 # Interactive animated selection menu
 │   ├── noise.py                # Pure-Python 3D Perlin noise + FBM
@@ -58,29 +59,31 @@ python3 run.py
 
 | File | Purpose |
 |------|---------|
-| `app.py` | argparse CLI layer (incl. `--bicolor`), curses setup, animation loop (~20fps), input dispatch (incl. `T` for trails), layout, resize handling, menu-to-lamp/pond flow, `--duration` deadline handling for screensaver mode |
-| `lamp.py` | Core lava simulation: shape profiles (incl. rocket and fireplace), `Ball`/`Lamp` classes, metaball field computation (scalar + bi-color variant), fireplace ember physics (`_update_fireplace`), Perlin noise field, trail buffer + decay, half-block rendering, solid base/cap/frame rendering |
+| `app.py` | argparse CLI layer (incl. `--bicolor`), curses setup, shared `_run_animation()` loop (~20fps) used by all three modes, per-mode callback factories (`_run_lamp`, `_run_donut`, `_run_pond`), layout, resize handling, menu-to-lamp/pond flow, `--duration` deadline handling for screensaver mode |
+| `donut.py` | Spinning ASCII torus: Andy Sloane's donut.c geometry ported to half-block cells, pre-computed sin/cos lookup tables for theta/phi steps (eliminates ~28,000 trig calls per frame), z-buffer + color buffer, 5 shade modes (Smooth, Glow, Bold, Dim, Iced), theme-based palette rendering |
+| `lamp.py` | Core lava simulation: shape profiles (incl. rocket and fireplace), `Ball`/`Lamp` classes, metaball field computation (scalar + bi-color variant), fireplace/campfire ember physics (`_update_fireplace`), Perlin noise field, trail buffer + decay, half-block rendering, solid base/cap/frame rendering, binary-search profile interpolation via `_interpolate_profile()` with pre-cached y-keys |
 | `pond.py` | Koi pond simulation: `Segment`/`Fish`/`LilyPad`/`Pond` classes, skeletal segment physics, lily pad rasterization with V-notch + 3-tone shading, buffer-based fish body rasterization, pectoral fin and tail fin rendering |
-| `noise.py` | Pure-Python 3D Perlin noise implementation with fractal Brownian motion (FBM) for the Liquid flow type |
-| `themes.py` | 16 theme definitions (classic Lava Library colors + modern neon themes + Koi Pond + Aurora), 6 koi color patterns, `ColorHelper` for curses color pair management with bi-color secondary palette + lazy pair allocation (`set_secondary_theme`, `_lazy_color_pair`), frame/base/cell/pond drawing methods |
+| `noise.py` | Pure-Python 3D Perlin noise implementation with fractal Brownian motion (FBM) for the Liquid flow type. `noise3()` computes each coordinate's floor once for both integer index and fractional part |
+| `themes.py` | 17 theme definitions (classic Lava Library colors + modern neon themes + Koi Pond + Aurora + Campfire + Christmas), 6 koi color patterns, `ColorHelper` for curses color pair management with bi-color secondary palette + lazy pair allocation (`set_secondary_theme`, `_lazy_color_pair`), frame/base/cell/pond/donut/scene drawing methods, `_resolve_fish_color()` with safe fallback for unknown patterns |
 | `menu.py` | Animated TUI menu with lava background, groovy taglines, and a live preview panel (`_build_preview` / `_render_preview`) that instantiates a real miniature `Lamp` or `Pond` for the currently-selected configuration. Includes inline theme palette swatch, `(n/total)` position counters, `TINT` bi-color field, `R` randomize, `1`–`6` field jumps, and wrap-around navigation |
 
 ### Rendering Pipeline
 
-Each frame (~20fps):
+Each frame (~20fps), driven by `_run_animation()` in `app.py`:
 
 1. **Input** - `screen.getch()` with 50ms timeout (acts as frame limiter)
-2. **Physics** - `Lamp.update()` advances ball positions/temperature/collisions (metaball flows) or noise time (liquid flow)
-3. **Render** - `screen.erase()`, then for each lamp:
-   - **Cap** - Solid metallic collar/nose cone with 3-tone shading and half-blocks
-   - **Body** - Dark frame outline + compute field at each half-cell, map to lava intensity (with rim glow), draw with colored liquid background
-   - **Base** - Solid metallic hourglass/fins with 3-tone highlight/mid/shadow
-4. **HUD** - Controls bar at bottom (toggleable with `H`)
-5. **Refresh** - `noutrefresh()` + `doupdate()` for flicker-free output
+2. **Key dispatch** - Common keys (Q/M/H) handled by the shared loop; mode-specific keys (resize, speed, theme, B/V, T, R) routed to per-mode callback
+3. **Physics** - Mode-specific `update_fn` advances state (lamp balls, donut rotation, pond fish)
+4. **Render** - `screen.erase()`, then mode-specific `draw_fn` renders the scene
+5. **HUD** - Controls bar at bottom (toggleable with `H`)
+6. **Refresh** - `noutrefresh()` + `doupdate()` for flicker-free output
+7. **Sleep** - Remaining frame budget slept to maintain target 20fps
+
+The shared loop eliminates ~120 lines of duplicated code across `_run_lamp`, `_run_donut`, and `_run_pond`. Each mode provides a state dict and five callbacks: `draw_fn`, `update_fn`, `draw_hud_fn`, `handle_key_fn`, and `reset_fn`.
 
 ### Shape System
 
-Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). Interpolation uses smoothstep (cubic Hermite) for smooth curves.
+Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). Interpolation uses smoothstep (cubic Hermite) for smooth curves. The `_interpolate_profile()` function uses binary search (`bisect`) on pre-computed y-key arrays cached at module load time, making lookup O(log n) instead of O(n). For the 25-point `BASE_PROFILE` this avoids up to 25 comparisons per call when rendering cap and base cells.
 
 12 styles available:
 
@@ -128,9 +131,13 @@ Each theme defines: `lava` (5 intensity colors), `liquid` (background), `rim` (g
 
 **Bi-color (secondary palette) lazy allocation.** When `--bicolor THEME_B` or the menu's `TINT` field is set, `ColorHelper.set_secondary_theme()` records a second `_level_colors_b` array. `draw_cell()` accepts optional `top_pid`/`bot_pid` arguments; cells where either pid is 1 route through `_lazy_color_pair()`, which allocates a curses pair for the actual (fg, bg) ANSI color combo on first use and caches it in `_lazy_pair_cache`. Only combos that actually appear on screen consume pair slots, keeping total usage well under the 256-pair budget on standard terminals.
 
-### Fireplace Ember Physics
+**Lazy fish cross-pair allocation.** `setup_pond_colors()` eagerly allocates the per-color (fish-on-water, water-on-fish, full-block) pairs for each unique fish color, but cross-color combinations (two different fish colors sharing a half-block cell) are allocated on first draw via the same `_lazy_color_pair()` path. Most cross-pairs never render in a given session, so pre-allocating the full O(N²) cartesian product would just burn pair slots.
 
-Fireplace reuses the metaball engine but swaps in `FLOW_PARAMS['fireplace']` (negative gravity, no buoyancy, no wall bounce, strong flicker `random_force`, slight outward `swirl`) regardless of the user's flow pick. `Lamp.__init__` spawns `2× num_balls` small, hot embers at the bottom in a Gaussian cluster with 8% of terminal width spread (wide enough to match the log base). `_update_fireplace()` drifts each ember upward with flicker jitter and cooling. The engine uses asymmetric teardrop shaping (squashed bottom, long wisp tail) and sine-wave "licking" motion for the tails. A sustained procedural flame pillar emerges from the logs to form a solid fire core. `Lamp._get_campfire_log_color()` and `Lamp._get_forest_bg_color()` provide high-fidelity 3D logs and a layered pine tree silhouette background respectively, integrated via true color compositing in the half-block pipeline.
+**Counter behavior on theme change.** `change_theme()` clears `pair_map` and `_lazy_pair_cache`, then calls `setup()` which resets `_next_pair_id` to just past its static allocations. Subsequent lazy allocations reuse pair IDs in the orphan range left over from the previous theme — safe because `curses.init_pair(pid, fg, bg)` simply redefines the pair on collision rather than failing. This keeps the counter bounded across arbitrary theme cycles. (An earlier 1.8.0 attempt to "guard" against counter growth saved/restored the old `_next_pair_id` around the `setup()` call, which actually caused the counter to grow monotonically; that was reverted in 1.9.0.)
+
+### Fireplace & Campfire Ember Physics
+
+Fireplace and campfire reuse the metaball engine but swap in `FLOW_PARAMS['fireplace']` (negative gravity, no buoyancy, no wall bounce, strong flicker `random_force`, slight outward `swirl`) regardless of the user's flow pick. `Lamp.__init__` forces `flow_type = 'fireplace'` for both styles, spawning `2× num_balls` small, hot embers at the bottom in a Gaussian cluster with 8% of terminal width spread (wide enough to match the log base). `_update_fireplace()` drifts each ember upward with flicker jitter and cooling. The engine uses asymmetric teardrop shaping (squashed bottom, long wisp tail) and sine-wave "licking" motion for the tails in `compute_field()` — both `fireplace` and `campfire` styles apply flame squashing via the `fireplace = self.style in ('fireplace', 'campfire')` guard. A sustained procedural flame pillar emerges from the logs to form a solid fire core. `Lamp._get_campfire_log_color()` and `Lamp._get_forest_bg_color()` provide high-fidelity 3D logs and a layered pine tree silhouette background respectively, integrated via true color compositing in the half-block pipeline.
 
 ### Bi-color Metaball Rendering
 
@@ -257,7 +264,7 @@ In `themes.py`, add to the `KOI_PATTERNS` dict:
 },
 ```
 
-The pattern is automatically available to fish. `_resolve_fish_color()` maps segment positions to body parts: segments 0-1 use `head`, 2-9 alternate `body_main`/`body_accent`, 4-5 outer edges use `fin`, 10-11 use `body_main`, 12-13 use `tail`.
+The pattern is automatically available to fish. `_resolve_fish_color()` maps segment positions to body parts: segments 0-1 use `head`, 2-9 alternate `body_main`/`body_accent`, 4-5 outer edges use `fin`, 10-11 use `body_main`, 12-13 use `tail`. The method uses `KOI_PATTERNS.get()` with a fallback to white (231) for unrecognized pattern names, preventing `KeyError` crashes if external code creates a `Fish` with an invalid pattern.
 
 ## Packaging & Releasing
 

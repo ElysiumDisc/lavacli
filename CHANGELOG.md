@@ -4,6 +4,40 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] - 2026-05-03
+
+### Fixed
+
+- **Color-pair counter leaked across theme cycles** (`themes.py`) - `ColorHelper.change_theme()` previously saved `_next_pair_id` before calling `setup()` and restored it afterward. This had the opposite of the intended effect: the counter monotonically grew toward `curses.COLOR_PAIRS` with every `C`-press, until `_lazy_color_pair` silently fell back to a neutral pair and new colors stopped appearing. The save/restore is removed; subsequent lazy allocations now overwrite orphaned IDs from the previous theme (safe — `init_pair` redefines on collision), so the counter stays bounded across arbitrary theme cycles.
+- **Idle frames invoked the key handler with a sentinel** (`app.py`) - `_run_animation` used `elif key:` to dispatch input, but `screen.getch()` returns `-1` (truthy in Python) when its `timeout()` expires with no input. The handler was being called every idle frame with `key=-1`, paying a function-call cost for nothing. Now uses an explicit `elif key != -1:`, matching the menu's idle handling.
+- **Koi pond weighted pattern list could empty** (`pond.py`) - `_init_fish` filtered the kohaku/sanke-weighted list against `KOI_PATTERN_NAMES`; if a future refactor renamed every weighted pattern, the filter could empty the list and `weighted[i % len(weighted)]` would raise `ZeroDivisionError`. Now falls back to `KOI_PATTERN_NAMES` (or `['kohaku']` as a last resort) before iterating.
+- **`add_fish` ignored the visual-style weighting** (`pond.py`) - Pressing `B` in the pond appended a uniformly-random pattern via `random.choice(KOI_PATTERN_NAMES)`, gradually drifting the pond away from the kohaku/sanke bias used at startup. Both call sites now share a `_WEIGHTED_PATTERNS` module constant, so newly-added fish match the original visual mix.
+
+### Performance
+
+- **Row-only computations hoisted out of lamp render col loops** (`lamp.py`) - `_render_body`, `_render_cap`, and `_render_base` were re-evaluating `get_glass_bounds(py_t/py_b)` (and the cap/base profile interpolations) once per column even though their results depend only on the row. For a body 20 columns wide that was ~20× redundant work per row each frame; the calls are now hoisted above the inner `for col` loop.
+- **Donut z-/color-buffer reset is now in-place** (`donut.py`) - `Donut.render` previously reset the buffers via `z[:] = [neg_inf] * n_cells` and `col_buf[:] = [None] * n_cells`, allocating two fresh per-frame lists the size of the terminal just to slice them in. Replaced with a single in-place fill loop, eliminating ~720 KB/sec of allocation churn at typical terminal sizes.
+- **Lazy fish cross-pair allocation** (`themes.py`) - `setup_pond_colors` previously eagerly allocated curses pairs for every (fg, bg) combination of fish colors — O(N²) up front whether or not those combos ever appear on screen. Cross-color cells now route through `_lazy_color_pair`, allocating pair slots only for combos that actually render. Same machinery already used for bicolor lava.
+
+## [1.8.0] - 2026-05-03
+
+### Fixed
+
+- **Ball radius not updated on terminal resize** (`lamp.py`) - `Lamp.resize()` now accepts an optional `new_ball_r` parameter and scales `self.ball_radius` proportionally. Without this, balls appeared too small on enlarged terminals or too large on shrunk ones. The resize handler in `app.py` passes the recomputed `ball_r` from `calculate_lamp_dims()`.
+- **Campfire style missing flame squashing in metaball field** (`lamp.py`) - `compute_field()` and `compute_field_bicolor()` now check `self.style in ('fireplace', 'campfire')` instead of only `'fireplace'`, so campfire embers get the same asymmetric teardrop shaping (squashed bottom, long tail) and sine-wave "licking" motion as fireplace embers.
+- **`--random` flag could produce mismatched campfire/xmas theme** (`app.py`) - The forced-theme override for `campfire` and `xmas` styles now applies regardless of `--random`. Previously `lavacli --random` could launch campfire fire logs against a teal koi pond background or green matrix colors behind flames.
+- **`_resolve_fish_color` KeyError on unknown pattern name** (`themes.py`) - The method now uses `KOI_PATTERNS.get()` with a fallback to white (231) for unrecognized pattern names, preventing crashes if external code creates a `Fish` with an invalid pattern.
+
+### Changed
+
+- **Shared animation loop** (`app.py`) - The three near-identical main loops (`_run_lamp`, `_run_donut`, `_run_pond`) now delegate to a single `_run_animation()` function that handles the common frame timing, input dispatch, resize, HUD drawing, and refresh/sleep logic. Each mode provides callbacks for its specific update, draw, key handling, and HUD functions. This eliminates ~120 lines of duplicated code and makes adding new animation modes straightforward.
+- **Profile interpolation uses binary search** (`lamp.py`) - `_interpolate_profile()` now uses `bisect` on pre-computed y-key arrays cached at module load time, replacing the O(n) linear scan. For the 25-point `BASE_PROFILE` this avoids up to 25 comparisons per call (called for every cell of cap/base rendering).
+
+### Performance
+
+- **Donut trig calls replaced with pre-computed lookup tables** (`donut.py`) - The nested rendering loops no longer call `math.sin`/`math.cos` ~28,000 times per frame. Instead, `Donut.__init__` builds sin/cos LUTs for the fixed theta (90 entries) and phi (315 entries) step sizes, reducing trig calls from 560,000/sec at 20fps to zero at runtime.
+- **Perlin noise `math.floor` deduplicated** (`noise.py`) - `noise3()` previously called `math.floor()` six times (twice per coordinate). Now each coordinate's floor is computed once and reused for both the integer index and fractional part.
+
 ## [1.7.0] - 2026-04-23
 
 ### Added

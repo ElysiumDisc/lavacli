@@ -52,7 +52,7 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 - **Groovy Animated Menu** - Lava background, rotating taglines, live lamp preview panel (every selection renders a real miniature lamp or koi pond next to the menu), inline theme palette swatch, position counters, `R` for randomize, `1`–`5` to jump between fields
 - **Direct-launch CLI flags** - `lavacli --style koipond --theme koi_pond --duration 600` skips the menu entirely — perfect for tmux startup scripts and terminal screensavers
 - **Rim/Edge Glow** - Dual-threshold rendering gives lava blobs a glowing halo edge
-- **Resizable** - Lamps adapt when you resize the terminal
+- **Resizable** - Lamps adapt when you resize the terminal, including ball radius scaling so blobs maintain proper proportions at any size
 - **Half-Block Rendering** - Uses Unicode `▀▄█` characters for 2x vertical resolution
 - **Metaball Physics** - Real metaball field simulation for authentic blob merging/splitting
 - **Perlin Noise Flow** - Pure-Python 3D Perlin noise with fractal Brownian motion for smooth organic liquid animation
@@ -284,7 +284,7 @@ When the field exceeds a threshold, that pixel is "inside" the lava. Nearby blob
 
 ### Perlin Noise Flow
 
-The "Liquid" flow type uses 3D Perlin noise with fractal Brownian motion (3 octaves) instead of metaball physics. Time advances continuously through the noise field, creating smooth organic flowing patterns. No ball physics needed - just `fbm3(x * scale, y * scale, time)`.
+The "Liquid" flow type uses 3D Perlin noise with fractal Brownian motion (3 octaves) instead of metaball physics. Time advances continuously through the noise field, creating smooth organic flowing patterns. No ball physics needed - just `fbm3(x * scale, y * scale, time)`. The `noise3()` function computes each coordinate's floor value once for both integer indexing and fractional part extraction, avoiding redundant `math.floor` calls.
 
 ### Heat/Buoyancy Cycle
 
@@ -298,9 +298,9 @@ Each terminal cell is split into two vertical halves using Unicode half-block ch
 
 The metallic base and cap are rendered as filled shapes using half-block characters with 3-tone highlight/mid/shadow shading. The base uses a classic hourglass profile. The rocket style uses a sharp pointed nose cone, a serrated three-fin base profile, and an extra horizontal chrome highlight stripe down the center column for polished metal curvature.
 
-### Fireplace
+### Fireplace & Campfire
 
-The Fireplace style reuses the metaball engine but flips gravity: a dense cloud of small "embers" spawns at the bottom and drifts upward. Each ember's temperature decays as a function of its height and its horizontal distance from the center, forming a natural triangular flame shape. The base of the fire features a high-fidelity **procedural 3D log structure**—complete with 3D-shaded bark, concentric rings on log ends, glowing cracks, and a bed of hot ash. A **sustained procedural flame core** sways and tapers upwards from the logs, providing a solid body of fire. When using the **Campfire theme**, a lush **pine tree silhouette background** with layered conifers, rolling hills, and stars is procedurally rendered behind the fire structure.
+The Fireplace and Campfire styles reuse the metaball engine but flip gravity: a dense cloud of small "embers" spawns at the bottom and drifts upward. Each ember's temperature decays as a function of its height and its horizontal distance from the center, forming a natural triangular flame shape. The metaball field computation applies asymmetric teardrop shaping (squashed bottom, long tail) and sine-wave "licking" motion for both styles. The base of the fire features a high-fidelity **procedural 3D log structure**—complete with 3D-shaded bark, concentric rings on log ends, glowing cracks, and a bed of hot ash. A **sustained procedural flame core** sways and tapers upwards from the logs, providing a solid body of fire. The **Campfire style** adds a lush **pine tree silhouette background** with layered conifers, rolling hills, and stars procedurally rendered behind the fire structure.
 
 
 ### Bi-color Lava
@@ -313,7 +313,7 @@ When `T` is pressed, each lamp allocates a per-cell trail buffer sized to the bo
 
 ### Donut
 
-The donut is a port of Andy Sloane's classic donut.c: a torus of inner radius 1 and outer radius 2 is rotated about two axes, perspective-projected, lit by a diagonal Lambertian light, and rasterized into a z-buffer. Instead of donut.c's 12-character luminance ramp, each lit surface point picks its palette from `THEME_ORDER` using a mix of its `(i, j)` angular indices and a slowly advancing frame offset, then the Lambertian intensity selects the shade within that palette. The whole donut visibly rotates through every color theme as it spins, and `B`/`V` switches between 8 sprinkle patterns (solid cycle, ring bands, tube stripes, confetti grid, chunky wedges, stacked hoops, fine speckle). Width and height scale independently so the donut fills wide terminals too — on an 80×24 screen the silhouette diameter spans ~60 columns. `ColorHelper.setup_donut_colors()` pre-warms curses pairs for every theme's lava palette against the current liquid background, so sprinkles never fall back to the liquid-on-liquid pair mid-render.
+The donut is a port of Andy Sloane's classic donut.c: a torus of inner radius 1 and outer radius 2 is rotated about two axes, perspective-projected, lit by a diagonal Lambertian light, and rasterized into a z-buffer. At initialization, `Donut.__init__` pre-computes sin/cos lookup tables for the fixed theta (90 entries) and phi (315 entries) step sizes, replacing ~28,000 `math.sin`/`math.cos` calls per frame with fast array lookups. Instead of donut.c's 12-character luminance ramp, each lit surface point picks its palette from the active theme, then the Lambertian intensity selects the shade within that palette. `B`/`V` cycles through 5 shade modes (Smooth, Glow, Bold, Dim, Iced). Width and height scale independently so the donut fills wide terminals too — on an 80×24 screen the silhouette diameter spans ~60 columns. `ColorHelper.setup_donut_colors()` pre-warms curses pairs for every theme's lava palette against the current liquid background, so colors never fall back mid-render.
 
 ### Koi Pond
 

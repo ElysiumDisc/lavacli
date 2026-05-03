@@ -81,9 +81,9 @@ def _config_from_args(args):
         style = args.style
     if args.theme is not None:
         theme = args.theme
-    if style == 'campfire' and args.theme is None and not args.random:
+    if style == 'campfire' and theme != 'campfire':
         theme = 'campfire'
-    if style == 'xmas' and args.theme is None and not args.random:
+    if style == 'xmas' and theme != 'xmas':
         theme = 'xmas'
     if args.flow is not None:
         flow = args.flow
@@ -181,7 +181,7 @@ def draw_shelf(screen, positions, lamps, term_w, ch):
 
 
 def draw_hud(screen, term_h, term_w, lamps, ch, speed,
-             trails=False, bicolor=False, style=None):
+              trails=False, bicolor=False, style=None):
     """Draw the controls bar at the bottom."""
     hud_y = term_h - 1
     paused = lamps[0].paused if lamps else False
@@ -207,6 +207,102 @@ def draw_hud(screen, term_h, term_w, lamps, ch, speed,
                       hud, ch.text_attr | curses.A_DIM)
     except curses.error:
         pass
+
+
+def draw_donut_hud(screen, term_h, term_w, donut, ch):
+    """Draw the controls bar for donut mode."""
+    from .donut import SHADE_MODE_NAMES
+    hud_y = term_h - 1
+    parts = [
+        'Q:Quit',
+        'M:Menu',
+        '+/-:Speed({:.0f}%)'.format(donut.speed_mult * 100),
+        'Space:Resume' if donut.paused else 'Space:Pause',
+        'C:Theme',
+        'B/V:Shade({})'.format(SHADE_MODE_NAMES[donut.shade_mode]),
+        'R:Reset',
+        'H:Hide',
+    ]
+    hud = '  '.join(parts)
+    try:
+        screen.addstr(hud_y, max(0, (term_w - len(hud)) // 2),
+                      hud, ch.text_attr | curses.A_DIM)
+    except curses.error:
+        pass
+
+
+def draw_pond_hud(screen, term_h, term_w, pond, ch):
+    """Draw the controls bar for koi pond mode."""
+    hud_y = term_h - 1
+    parts = [
+        'Q:Quit',
+        'M:Menu',
+        '+/-:Speed({:.0f}%)'.format(pond.speed_mult * 100),
+        'Space:Resume' if pond.paused else 'Space:Pause',
+        'C:Colors',
+        'B/V:Fish',
+        'R:Reset',
+        'H:Hide',
+    ]
+    hud = '  '.join(parts)
+    try:
+        screen.addstr(hud_y, max(0, (term_w - len(hud)) // 2),
+                      hud, ch.text_attr | curses.A_DIM)
+    except curses.error:
+        pass
+
+
+def _run_animation(screen, deadline, ch, state, draw_fn, update_fn,
+                   draw_hud_fn, handle_key_fn, reset_fn, frame_ms=50):
+    """Generic animation loop shared by lamp, donut, and pond modes.
+
+    Returns True to go back to menu, False to quit.
+
+    Callbacks (all receive/return state dict for mutable shared state):
+        draw_fn(screen, state, ch)          — render one frame
+        update_fn(state)                    — advance physics/state
+        draw_hud_fn(screen, state, ch)      — draw HUD bar
+        handle_key_fn(key, state, ch)       — return True if loop should exit
+        reset_fn(state, ch)                 — recreate animation object(s)
+    """
+    screen.timeout(frame_ms)
+    show_hud = state.setdefault('show_hud', True)
+
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            return False
+
+        frame_start = time.monotonic()
+        key = screen.getch()
+
+        if key in (ord('q'), ord('Q'), 27):
+            return False
+        elif key in (ord('m'), ord('M')):
+            return True
+        elif key in (ord('h'), ord('H')):
+            show_hud = not show_hud
+        elif key != -1:
+            if handle_key_fn(key, state, ch):
+                return state.pop('_exit_result', False)
+
+        update_fn(state)
+
+        screen.erase()
+        draw_fn(screen, state, ch)
+
+        if show_hud:
+            draw_hud_fn(screen, state, ch)
+
+        try:
+            screen.noutrefresh()
+            curses.doupdate()
+        except curses.error:
+            pass
+
+        elapsed = time.monotonic() - frame_start
+        remaining = (frame_ms / 1000.0) - elapsed
+        if remaining > 0:
+            time.sleep(remaining)
 
 
 def run(argv=None):
@@ -276,128 +372,92 @@ def _run_lamp(screen, config, deadline=None):
                           bicolor=bool(bicolor_theme)))
 
     positions = layout_lamps(lamps, term_w, term_h) if not is_fullscreen else [(0, 0)]
-    theme_idx = THEME_ORDER.index(config['theme'])
-    show_hud = True
 
-    frame_ms = 50  # ~20 fps
-    screen.timeout(frame_ms)
+    state = {
+        'ch': ch, 'lamps': lamps, 'positions': positions,
+        'term_h': term_h, 'term_w': term_w,
+        'theme_idx': THEME_ORDER.index(config['theme']),
+        'is_fullscreen': is_fullscreen, 'lamp_count': lamp_count,
+        'bicolor_theme': bicolor_theme,
+    }
 
-    while True:
-        if deadline is not None and time.monotonic() >= deadline:
-            return False
+    def _update(st):
+        for lamp in st['lamps']:
+            lamp.update()
 
-        frame_start = time.monotonic()
+    def _draw(scr, st, ch_):
+        for lamp, (x, y) in zip(st['lamps'], st['positions']):
+            if st['is_fullscreen']:
+                lamp.render_freestyle(scr, x, y, ch_)
+            else:
+                lamp.render(scr, x, y, ch_)
+        if not st['is_fullscreen']:
+            draw_shelf(scr, st['positions'], st['lamps'], st['term_w'], ch_)
 
-        key = screen.getch()
+    def _draw_hud_fn(scr, st, ch_):
+        draw_hud(scr, st['term_h'], st['term_w'], st['lamps'], ch_,
+                 st['lamps'][0].speed_mult if st['lamps'] else 1.0,
+                 trails=bool(st['lamps'] and st['lamps'][0].trails),
+                 bicolor=bool(st['bicolor_theme']),
+                 style=config['style'])
 
-        if key in (ord('q'), ord('Q'), 27):
-            return False
-        elif key in (ord('m'), ord('M')):
-            return True
-        elif key == curses.KEY_RESIZE:
-            term_h, term_w = screen.getmaxyx()
-            body_w, body_h, _, ball_r, base_h, cap_h = calculate_lamp_dims(
-                term_w, term_h, len(lamps), config['size'], config['style'])
-            for lamp in lamps:
-                lamp.resize(body_w, body_h, base_h, cap_h)
-            positions = layout_lamps(lamps, term_w, term_h) if not is_fullscreen else [(0, 0)]
+    def _handle_key(key, st, ch_):
+        if key == curses.KEY_RESIZE:
+            th, tw = scr.getmaxyx()
+            st['term_h'], st['term_w'] = th, tw
+            bw, bh, _, br, bhh, chh = calculate_lamp_dims(
+                tw, th, len(st['lamps']), config['size'], config['style'])
+            for lamp in st['lamps']:
+                lamp.resize(bw, bh, bhh, chh, br)
+            st['positions'] = (layout_lamps(st['lamps'], tw, th)
+                               if not st['is_fullscreen'] else [(0, 0)])
         elif key == ord(' '):
-            for lamp in lamps:
+            for lamp in st['lamps']:
                 lamp.paused = not lamp.paused
         elif key in (ord('+'), ord('=')):
-            for lamp in lamps:
+            for lamp in st['lamps']:
                 lamp.speed_mult = min(3.0, lamp.speed_mult + 0.25)
         elif key in (ord('-'), ord('_')):
-            for lamp in lamps:
+            for lamp in st['lamps']:
                 lamp.speed_mult = max(0.25, lamp.speed_mult - 0.25)
         elif key in (ord('c'), ord('C')):
-            theme_idx = (theme_idx + 1) % len(THEME_ORDER)
-            ch.change_theme(THEME_ORDER[theme_idx])
+            st['theme_idx'] = (st['theme_idx'] + 1) % len(THEME_ORDER)
+            ch_.change_theme(THEME_ORDER[st['theme_idx']])
         elif key in (ord('b'), ord('B')):
             if config['style'] == 'xmas':
-                for lamp in lamps:
+                for lamp in st['lamps']:
                     lamp.flame_size = (lamp.flame_size + 1) % 3
             else:
-                for lamp in lamps:
+                for lamp in st['lamps']:
                     lamp.add_ball()
         elif key in (ord('v'), ord('V')):
             if config['style'] == 'xmas':
-                for lamp in lamps:
+                for lamp in st['lamps']:
                     lamp.flame_size = (lamp.flame_size - 1) % 3
             else:
-                for lamp in lamps:
+                for lamp in st['lamps']:
                     lamp.remove_ball()
-        elif key in (ord('h'), ord('H')):
-            show_hud = not show_hud
         elif key in (ord('t'), ord('T')):
-            # Toggle slow-shutter trails on every active lamp
-            for lamp in lamps:
+            for lamp in st['lamps']:
                 lamp.trails = not lamp.trails
                 if not lamp.trails:
                     lamp.trail_buffer = None
         elif key in (ord('r'), ord('R')):
-            lamps.clear()
-            body_w, body_h, num_balls, ball_r, base_h, cap_h = calculate_lamp_dims(
-                term_w, term_h, lamp_count, config['size'], config['style'])
-            for _ in range(lamp_count):
-                lamps.append(Lamp(config['style'], body_w, body_h,
-                                  config['flow'], num_balls, ball_r, base_h, cap_h,
-                                  freestyle=is_fullscreen,
-                                  bicolor=bool(bicolor_theme)))
-            positions = layout_lamps(lamps, term_w, term_h) if not is_fullscreen else [(0, 0)]
+            bw, bh, nb, br, bhh, chh = calculate_lamp_dims(
+                st['term_w'], st['term_h'], st['lamp_count'],
+                config['size'], config['style'])
+            st['lamps'].clear()
+            for _ in range(st['lamp_count']):
+                st['lamps'].append(Lamp(config['style'], bw, bh,
+                                        config['flow'], nb, br, bhh, chh,
+                                        freestyle=st['is_fullscreen'],
+                                        bicolor=bool(st['bicolor_theme'])))
+            st['positions'] = (layout_lamps(st['lamps'], st['term_w'], st['term_h'])
+                               if not st['is_fullscreen'] else [(0, 0)])
+        return False
 
-        for lamp in lamps:
-            lamp.update()
-
-        screen.erase()
-
-        for lamp, (x, y) in zip(lamps, positions):
-            if is_fullscreen:
-                lamp.render_freestyle(screen, x, y, ch)
-            else:
-                lamp.render(screen, x, y, ch)
-
-        if not is_fullscreen:
-            draw_shelf(screen, positions, lamps, term_w, ch)
-        if show_hud:
-            draw_hud(screen, term_h, term_w, lamps, ch,
-                     lamps[0].speed_mult if lamps else 1.0,
-                     trails=bool(lamps and lamps[0].trails),
-                     bicolor=bool(bicolor_theme),
-                     style=config['style'])
-
-        try:
-            screen.noutrefresh()
-            curses.doupdate()
-        except curses.error:
-            pass
-
-        elapsed = time.monotonic() - frame_start
-        remaining = (frame_ms / 1000.0) - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
-
-
-def draw_donut_hud(screen, term_h, term_w, donut, ch):
-    """Draw the controls bar for donut mode."""
-    from .donut import SHADE_MODE_NAMES
-    hud_y = term_h - 1
-    parts = [
-        'Q:Quit',
-        'M:Menu',
-        '+/-:Speed({:.0f}%)'.format(donut.speed_mult * 100),
-        'Space:Resume' if donut.paused else 'Space:Pause',
-        'C:Theme',
-        'B/V:Shade({})'.format(SHADE_MODE_NAMES[donut.shade_mode]),
-        'R:Reset',
-        'H:Hide',
-    ]
-    hud = '  '.join(parts)
-    try:
-        screen.addstr(hud_y, max(0, (term_w - len(hud)) // 2),
-                      hud, ch.text_attr | curses.A_DIM)
-    except curses.error:
-        pass
+    return _run_animation(screen, deadline, ch, state,
+                          _draw, _update, _draw_hud_fn, _handle_key, None)
 
 
 def _run_donut(screen, config, deadline=None):
@@ -407,88 +467,51 @@ def _run_donut(screen, config, deadline=None):
     ch.setup_donut_colors()
 
     term_h, term_w = screen.getmaxyx()
-    theme_idx = THEME_ORDER.index(config['theme'])
     donut = Donut(term_w, term_h - 1, theme_name=config['theme'])
-    show_hud = True
 
-    frame_ms = 50  # ~20 fps
-    screen.timeout(frame_ms)
+    state = {
+        'ch': ch, 'donut': donut,
+        'term_h': term_h, 'term_w': term_w,
+        'theme_idx': THEME_ORDER.index(config['theme']),
+    }
 
-    while True:
-        if deadline is not None and time.monotonic() >= deadline:
-            return False
+    def _update(st):
+        st['donut'].update()
 
-        frame_start = time.monotonic()
+    def _draw(scr, st, ch_):
+        st['donut'].render(scr, ch_)
 
-        key = screen.getch()
+    def _draw_hud_fn(scr, st, ch_):
+        draw_donut_hud(scr, st['term_h'], st['term_w'], st['donut'], ch_)
 
-        if key in (ord('q'), ord('Q'), 27):
-            return False
-        elif key in (ord('m'), ord('M')):
-            return True
-        elif key == curses.KEY_RESIZE:
-            term_h, term_w = screen.getmaxyx()
-            donut.resize(term_w, term_h - 1)
+    def _handle_key(key, st, ch_):
+        if key == curses.KEY_RESIZE:
+            th, tw = scr.getmaxyx()
+            st['term_h'], st['term_w'] = th, tw
+            st['donut'].resize(tw, th - 1)
         elif key == ord(' '):
-            donut.paused = not donut.paused
+            st['donut'].paused = not st['donut'].paused
         elif key in (ord('+'), ord('=')):
-            donut.speed_mult = min(3.0, donut.speed_mult + 0.25)
+            st['donut'].speed_mult = min(3.0, st['donut'].speed_mult + 0.25)
         elif key in (ord('-'), ord('_')):
-            donut.speed_mult = max(0.25, donut.speed_mult - 0.25)
+            st['donut'].speed_mult = max(0.25, st['donut'].speed_mult - 0.25)
         elif key in (ord('c'), ord('C')):
-            theme_idx = (theme_idx + 1) % len(THEME_ORDER)
-            ch.change_theme(THEME_ORDER[theme_idx])
-            ch.setup_donut_colors()
-            donut.set_theme(THEME_ORDER[theme_idx])
+            st['theme_idx'] = (st['theme_idx'] + 1) % len(THEME_ORDER)
+            ch_.change_theme(THEME_ORDER[st['theme_idx']])
+            ch_.setup_donut_colors()
+            st['donut'].set_theme(THEME_ORDER[st['theme_idx']])
         elif key in (ord('b'), ord('B')):
-            donut.next_shade()
+            st['donut'].next_shade()
         elif key in (ord('v'), ord('V')):
-            donut.prev_shade()
-        elif key in (ord('h'), ord('H')):
-            show_hud = not show_hud
+            st['donut'].prev_shade()
         elif key in (ord('r'), ord('R')):
-            donut = Donut(term_w, term_h - 1, donut.speed_mult,
-                          theme_name=THEME_ORDER[theme_idx])
+            st['donut'] = Donut(st['term_w'], st['term_h'] - 1,
+                                st['donut'].speed_mult,
+                                theme_name=THEME_ORDER[st['theme_idx']])
+        return False
 
-        donut.update()
-
-        screen.erase()
-        donut.render(screen, ch)
-
-        if show_hud:
-            draw_donut_hud(screen, term_h, term_w, donut, ch)
-
-        try:
-            screen.noutrefresh()
-            curses.doupdate()
-        except curses.error:
-            pass
-
-        elapsed = time.monotonic() - frame_start
-        remaining = (frame_ms / 1000.0) - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
-
-
-def draw_pond_hud(screen, term_h, term_w, pond, ch):
-    """Draw the controls bar for koi pond mode."""
-    hud_y = term_h - 1
-    parts = [
-        'Q:Quit',
-        'M:Menu',
-        '+/-:Speed({:.0f}%)'.format(pond.speed_mult * 100),
-        'Space:Resume' if pond.paused else 'Space:Pause',
-        'C:Colors',
-        'B/V:Fish',
-        'R:Reset',
-        'H:Hide',
-    ]
-    hud = '  '.join(parts)
-    try:
-        screen.addstr(hud_y, max(0, (term_w - len(hud)) // 2),
-                      hud, ch.text_attr | curses.A_DIM)
-    except curses.error:
-        pass
+    return _run_animation(screen, deadline, ch, state,
+                          _draw, _update, _draw_hud_fn, _handle_key, None)
 
 
 def _run_pond(screen, config, deadline=None):
@@ -498,65 +521,47 @@ def _run_pond(screen, config, deadline=None):
     ch.setup_pond_colors()
 
     term_h, term_w = screen.getmaxyx()
-    # Map count (1-6) to fish count (3-12)
     fish_count = max(3, config.get('count', 1) * 2 + 1)
-
     pond = Pond(term_w, term_h - 1, fish_count)
-    theme_idx = THEME_ORDER.index(config['theme'])
-    show_hud = True
 
-    frame_ms = 50  # ~20 fps
-    screen.timeout(frame_ms)
+    state = {
+        'ch': ch, 'pond': pond, 'fish_count': fish_count,
+        'term_h': term_h, 'term_w': term_w,
+        'theme_idx': THEME_ORDER.index(config['theme']),
+    }
 
-    while True:
-        if deadline is not None and time.monotonic() >= deadline:
-            return False
+    def _update(st):
+        st['pond'].update()
 
-        frame_start = time.monotonic()
+    def _draw(scr, st, ch_):
+        st['pond'].render(scr, ch_)
 
-        key = screen.getch()
+    def _draw_hud_fn(scr, st, ch_):
+        draw_pond_hud(scr, st['term_h'], st['term_w'], st['pond'], ch_)
 
-        if key in (ord('q'), ord('Q'), 27):
-            return False
-        elif key in (ord('m'), ord('M')):
-            return True
-        elif key == curses.KEY_RESIZE:
-            term_h, term_w = screen.getmaxyx()
-            pond.resize(term_w, term_h - 1)
+    def _handle_key(key, st, ch_):
+        if key == curses.KEY_RESIZE:
+            th, tw = scr.getmaxyx()
+            st['term_h'], st['term_w'] = th, tw
+            st['pond'].resize(tw, th - 1)
         elif key == ord(' '):
-            pond.paused = not pond.paused
+            st['pond'].paused = not st['pond'].paused
         elif key in (ord('+'), ord('=')):
-            pond.speed_mult = min(3.0, pond.speed_mult + 0.25)
+            st['pond'].speed_mult = min(3.0, st['pond'].speed_mult + 0.25)
         elif key in (ord('-'), ord('_')):
-            pond.speed_mult = max(0.25, pond.speed_mult - 0.25)
+            st['pond'].speed_mult = max(0.25, st['pond'].speed_mult - 0.25)
         elif key in (ord('c'), ord('C')):
-            theme_idx = (theme_idx + 1) % len(THEME_ORDER)
-            ch.change_theme(THEME_ORDER[theme_idx])
-            ch.setup_pond_colors()
+            st['theme_idx'] = (st['theme_idx'] + 1) % len(THEME_ORDER)
+            ch_.change_theme(THEME_ORDER[st['theme_idx']])
+            ch_.setup_pond_colors()
         elif key in (ord('b'), ord('B')):
-            pond.add_fish()
+            st['pond'].add_fish()
         elif key in (ord('v'), ord('V')):
-            pond.remove_fish()
-        elif key in (ord('h'), ord('H')):
-            show_hud = not show_hud
+            st['pond'].remove_fish()
         elif key in (ord('r'), ord('R')):
-            pond = Pond(term_w, term_h - 1, fish_count, pond.speed_mult)
+            st['pond'] = Pond(st['term_w'], st['term_h'] - 1,
+                              st['fish_count'], st['pond'].speed_mult)
+        return False
 
-        pond.update()
-
-        screen.erase()
-        pond.render(screen, ch)
-
-        if show_hud:
-            draw_pond_hud(screen, term_h, term_w, pond, ch)
-
-        try:
-            screen.noutrefresh()
-            curses.doupdate()
-        except curses.error:
-            pass
-
-        elapsed = time.monotonic() - frame_start
-        remaining = (frame_ms / 1000.0) - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
+    return _run_animation(screen, deadline, ch, state,
+                          _draw, _update, _draw_hud_fn, _handle_key, None)
