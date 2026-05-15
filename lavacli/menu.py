@@ -54,7 +54,9 @@ class _MenuLava:
         for _ in range(num):
             x = random.uniform(1, width - 1)
             y = random.uniform(1, self.phys_h - 1)
-            b = Ball(x, y, max(3.0, width * 0.15))
+            r = max(3.0, width * 0.15)
+            b = Ball(x, y, r)
+            b.radius_sq = r * r
             b.vx = random.uniform(-0.3, 0.3)
             b.vy = random.uniform(-0.3, 0.3)
             b.temp = random.uniform(0.3, 0.7)
@@ -84,16 +86,25 @@ class _MenuLava:
                 ball.y = self.phys_h - 1
                 ball.vy = -abs(ball.vy)
 
-    def field_at(self, px, py):
-        total = 0.0
+    def field_at_dual(self, px, py_t, py_b):
+        total_t = 0.0
+        total_b = 0.0
         for ball in self.balls:
             dx = px - ball.x
-            dy = (py - ball.y) * 0.55
-            d_sq = dx * dx + dy * dy
-            if d_sq < 0.001:
-                d_sq = 0.001
-            total += (ball.radius * ball.radius) / d_sq
-        return total
+            dx_sq = dx * dx
+            
+            dy_t = (py_t - ball.y) * 0.55
+            dy_b = (py_b - ball.y) * 0.55
+            
+            d_sq_t = dx_sq + dy_t * dy_t
+            d_sq_b = dx_sq + dy_b * dy_b
+            
+            if d_sq_t < 0.001: d_sq_t = 0.001
+            if d_sq_b < 0.001: d_sq_b = 0.001
+            
+            total_t += ball.radius_sq / d_sq_t
+            total_b += ball.radius_sq / d_sq_b
+        return total_t, total_b
 
     def resize(self, width, height):
         old_w, old_h = self.width, self.phys_h
@@ -126,8 +137,7 @@ def _render_bg(screen, lava, ch, height, width):
         py_t = row * 2
         py_b = row * 2 + 1
         for col in range(width):
-            ft = lava.field_at(col + 0.5, py_t + 0.5)
-            fb = lava.field_at(col + 0.5, py_b + 0.5)
+            ft, fb = lava.field_at_dual(col + 0.5, py_t + 0.5, py_b + 0.5)
             tl = _field_to_bg_level(ft)
             bl = _field_to_bg_level(fb)
             if tl == 0 and bl == 0:

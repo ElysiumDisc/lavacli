@@ -280,7 +280,7 @@ Each lava blob is a "metaball" - a point with a radius that generates an implici
 field(x,y) = sum( radius^2 / distance^2 ) for each ball
 ```
 
-When the field exceeds a threshold, that pixel is "inside" the lava. Nearby blobs naturally merge into smooth shapes. A secondary rim threshold creates a glowing edge around each blob for visual depth.
+When the field exceeds a threshold, that pixel is "inside" the lava. Nearby blobs naturally merge into smooth shapes. A secondary rim threshold creates a glowing edge around each blob for visual depth. The engine uses a **dual-field pass** that computes both the top and bottom half-block field values in a single iteration, sharing redundant square-distance calculations. A **distance-based cutoff** skips contributions from blobs further than 20 units away, ensuring high performance even on large terminals with many balls.
 
 ### Perlin Noise Flow
 
@@ -317,7 +317,7 @@ The donut is a port of Andy Sloane's classic donut.c: a torus of inner radius 1 
 
 ### Koi Pond
 
-The koi pond is a separate render path from the lava lamp. Each fish is a 14-segment chain with constraint-based segment physics — the head moves toward a random target with a sinusoidal lateral wobble, and the rest of the body trails behind via distance constraints. Lily pads are scattered with Poisson-ish rejection sampling, rasterized as ellipses with a V-notch carved out, and stamped into the render buffer *before* fish so the koi naturally swim over them. The whole scene uses the same half-block buffer rendering as the lava lamp.
+The koi pond is a separate render path from the lava lamp. Each fish is a 14-segment chain with constraint-based segment physics — the head moves toward a random target with a sinusoidal lateral wobble, and the rest of the body trails behind via distance constraints. Lily pads are scattered with Poisson-ish rejection sampling and **pre-rendered into a static background buffer** on initialization; the main loop performs a fast row-copy of this buffer before rasterizing fish, eliminating redundant geometry calculations for the static pond elements. The whole scene uses the same half-block buffer rendering as the lava lamp.
 
 ## License
 

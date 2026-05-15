@@ -163,6 +163,7 @@ class Pond:
         self.fish_list = []
         self.lily_pads = []
         self._render_buf = [[None] * width for _ in range(height * 2)]
+        self._pad_buf = [[None] * width for _ in range(height * 2)]
         self._init_fish(fish_count)
         self._init_lily_pads()
 
@@ -223,6 +224,11 @@ class Pond:
             self.lily_pads.append(
                 LilyPad(cx, cy, rx, ry, random.uniform(0, 2 * math.pi)))
 
+        # Pre-render pads once into the static pad buffer
+        self._pad_buf = [[None] * self.width for _ in range(self.phys_h)]
+        for pad in self.lily_pads:
+            self._stamp_lily_pad(self._pad_buf, pad, self.width, self.phys_h)
+
     def update(self):
         if self.paused:
             return
@@ -232,18 +238,9 @@ class Pond:
     def render(self, screen, ch, x_off=0, y_off=0):
         """Render the pond using a buffer + half-block output."""
         w, ph = self.width, self.phys_h
-        # Build buffer:
-        #   None                       -> water
-        #   ('pad', shade)             -> lily pad cell
-        #   (pattern, seg_idx, dist)   -> fish segment cell
-        buffer = self._render_buf
-        for row in buffer:
-            for i in range(len(row)):
-                row[i] = None
-
-        # Pads first so fish render on top of them
-        for pad in self.lily_pads:
-            self._stamp_lily_pad(buffer, pad, w, ph)
+        # Fast copy of the pre-rendered pad background
+        buffer = [row[:] for row in self._pad_buf]
+        self._render_buf = buffer
 
         for fish in self.fish_list:
             self._stamp_fish(buffer, fish, w, ph)

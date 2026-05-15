@@ -322,7 +322,7 @@ def _interpolate_profile(profile, t):
 # Ball (metaball particle)
 # ---------------------------------------------------------------------------
 class Ball:
-    __slots__ = ('x', 'y', 'vx', 'vy', 'radius', 'temp', 'palette_id')
+    __slots__ = ('x', 'y', 'vx', 'vy', 'radius', 'radius_sq', 'temp', 'palette_id')
 
     def __init__(self, x, y, radius, palette_id=0):
         self.x = x
@@ -330,6 +330,7 @@ class Ball:
         self.vx = random.uniform(-0.2, 0.2)
         self.vy = random.uniform(-0.1, 0.1)
         self.radius = radius
+        self.radius_sq = radius * radius
         self.temp = random.uniform(0.2, 0.5)
         self.palette_id = palette_id
 
@@ -495,17 +496,18 @@ class Lamp:
         """
         if body_w <= 1:
             return vertical_default
-        dist_from_center = abs(col - (body_w - 1) / 2.0) / max(0.5, (body_w - 1) / 2.0)
+        ref = (body_w - 1) * 0.5
+        dist_from_center = abs(col - ref) / max(0.5, ref)
         if dist_from_center < 0.22:
-            horiz = 'hi'
+            h_rank = 2
         elif dist_from_center < 0.55:
-            horiz = 'mid'
+            h_rank = 1
         else:
-            horiz = 'sh'
-        rank = {'hi': 2, 'mid': 1, 'sh': 0}
+            h_rank = 0
+        v_rank = {'hi': 2, 'mid': 1, 'sh': 0}[vertical_default]
         # Weighted blend: horizontal stripe weighted 1.5x so it brightens
         # the body cells, but vertical band still gates dark waist areas.
-        score = (rank[horiz] * 1.5 + rank[vertical_default]) / 2.5
+        score = (h_rank * 1.5 + v_rank) / 2.5
         if score >= 1.5:
             return 'hi'
         elif score >= 0.5:
@@ -632,107 +634,171 @@ class Lamp:
 
     # ----- Metaball field -----
 
-    def compute_field(self, px, py):
+    METABALL_CUTOFF_SQ = 400.0  # (20 units)^2
+
+    def compute_field_dual(self, px, py_t, py_b):
+        """Compute field for both top and bottom half-blocks in one pass."""
         if self.flow_type == 'liquid':
-            return self._compute_noise_field(px, py)
-        total = 0.0
+            return self._compute_noise_field(px, py_t), self._compute_noise_field(px, py_b)
+
+        total_t = 0.0
+        total_b = 0.0
         fireplace = self.style in ('fireplace', 'campfire')
+        cutoff_sq = self.METABALL_CUTOFF_SQ
+
         for ball in self.balls:
             dx = px - ball.x
-            dy_base = (py - ball.y)
+            dx_sq = dx * dx
+            if dx_sq > cutoff_sq:
+                continue
+
+            dy_t_base = py_t - ball.y
+            dy_b_base = py_b - ball.y
+
             if fireplace:
-                # Flame shape: squashed bottom, long tail pointing up
-                if dy_base > 0:
-                    dy = dy_base * 1.2
+                # Top half
+                dy_t = dy_t_base * 1.2 if dy_t_base > 0 else dy_t_base * 0.3
+                if dy_t_base <= 0:
+                    dx_t = dx + math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_t_base * 0.4
                 else:
-                    dy = dy_base * 0.3
-                    # Licking flame wave motion
-                    dx += math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_base * 0.4
+                    dx_t = dx
+                
+                # Bottom half
+                dy_b = dy_b_base * 1.2 if dy_b_base > 0 else dy_b_base * 0.3
+                if dy_b_base <= 0:
+                    dx_b = dx + math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_b_base * 0.4
+                else:
+                    dx_b = dx
             else:
-                dy = dy_base * 0.55  # slight vertical squash for organic blobs
+                dy_t = dy_t_base * 0.55
+                dy_b = dy_b_base * 0.55
+                dx_t = dx_b = dx
 
-            d_sq = dx * dx + dy * dy
-            if d_sq < 0.001:
-                d_sq = 0.001
-            contribution = (ball.radius * ball.radius) / d_sq
-            # Fireplace: cooler embers fade out by scaling their field
-            if fireplace:
-                contribution *= ball.temp
-            total += contribution
-        
+            d_sq_t = dx_t * dx_t + dy_t * dy_t
+            d_sq_b = dx_b * dx_b + dy_b * dy_b
+
+            if d_sq_t < cutoff_sq:
+                c_t = ball.radius_sq / max(0.001, d_sq_t)
+                total_t += c_t * ball.temp if fireplace else c_t
+            if d_sq_b < cutoff_sq:
+                c_b = ball.radius_sq / max(0.001, d_sq_b)
+                total_b += c_b * ball.temp if fireplace else c_b
+
         if fireplace:
-            # Sustained central flame core pillar emerging from logs
             bot = self.phys_height - 1.5
-            if py < bot:
-                dy_p = bot - py
+            if py_t < bot or py_b < bot:
                 h_max = self.phys_height * 0.45
-                h_frac = max(0.0, 1.0 - dy_p / h_max)
-                if h_frac > 0:
-                    cx = self.body_width / 2
-                    # Pillar sways organically
-                    sway = math.sin(self._noise_time * 2.8 - py * 0.12) * (1.0 - h_frac) * 3.5
-                    dx_p = px - (cx + sway)
-                    # Radius tapers: thick at base, thin at top
-                    r_p = self.body_width * 0.08 * (h_frac ** 1.5)
-                    if r_p > 0.1:
-                        pillar_contrib = (r_p * r_p) / (dx_p * dx_p + 0.6)
-                        total += pillar_contrib * (h_frac ** 0.5) * 2.5
-        
-        return total
+                cx = self.body_width / 2
+                base_sway = self._noise_time * 2.8
+                
+                # Top pillar
+                if py_t < bot:
+                    dy_p = bot - py_t
+                    h_frac = max(0.0, 1.0 - dy_p / h_max)
+                    if h_frac > 0:
+                        sway = math.sin(base_sway - py_t * 0.12) * (1.0 - h_frac) * 3.5
+                        dx_p = px - (cx + sway)
+                        r_p = self.body_width * 0.08 * (h_frac ** 1.5)
+                        if r_p > 0.1:
+                            total_t += (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
+                
+                # Bottom pillar
+                if py_b < bot:
+                    dy_p = bot - py_b
+                    h_frac = max(0.0, 1.0 - dy_p / h_max)
+                    if h_frac > 0:
+                        sway = math.sin(base_sway - py_b * 0.12) * (1.0 - h_frac) * 3.5
+                        dx_p = px - (cx + sway)
+                        r_p = self.body_width * 0.08 * (h_frac ** 1.5)
+                        if r_p > 0.1:
+                            total_b += (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
 
-    def compute_field_bicolor(self, px, py):
-        """Return (total_field, dominant_palette_id) for bi-color rendering.
+        return total_t, total_b
 
-        Bi-color is a metaball-only feature; when flow=liquid we fall back to
-        scalar field with palette_id=0 (Perlin noise has no per-ball identity).
-        """
+    def compute_field_bicolor_dual(self, px, py_t, py_b):
+        """Compute bicolor field for both top and bottom half-blocks in one pass."""
         if self.flow_type == 'liquid':
-            return (self._compute_noise_field(px, py), 0)
-        sum_a = 0.0
-        sum_b = 0.0
+            return (self._compute_noise_field(px, py_t), 0), (self._compute_noise_field(px, py_b), 0)
+
+        sum_at = sum_bt = sum_ab = sum_bb = 0.0
         fireplace = self.style in ('fireplace', 'campfire')
+        cutoff_sq = self.METABALL_CUTOFF_SQ
+
         for ball in self.balls:
             dx = px - ball.x
-            dy_base = (py - ball.y)
-            if fireplace:
-                if dy_base > 0:
-                    dy = dy_base * 1.2
-                else:
-                    dy = dy_base * 0.3
-                    dx += math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_base * 0.4
-            else:
-                dy = dy_base * 0.55
+            dx_sq = dx * dx
+            if dx_sq > cutoff_sq:
+                continue
 
-            d_sq = dx * dx + dy * dy
-            if d_sq < 0.001:
-                d_sq = 0.001
-            c = (ball.radius * ball.radius) / d_sq
+            dy_t_base = py_t - ball.y
+            dy_b_base = py_b - ball.y
+
             if fireplace:
-                c *= ball.temp
-            if ball.palette_id == 1:
-                sum_b += c
+                # Top half
+                dy_t = dy_t_base * 1.2 if dy_t_base > 0 else dy_t_base * 0.3
+                if dy_t_base <= 0:
+                    dx_t = dx + math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_t_base * 0.4
+                else:
+                    dx_t = dx
+                
+                # Bottom half
+                dy_b = dy_b_base * 1.2 if dy_b_base > 0 else dy_b_base * 0.3
+                if dy_b_base <= 0:
+                    dx_b = dx + math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_b_base * 0.4
+                else:
+                    dx_b = dx
             else:
-                sum_a += c
-        
-        total = sum_a + sum_b
+                dy_t = dy_t_base * 0.55
+                dy_b = dy_b_base * 0.55
+                dx_t = dx_b = dx
+
+            d_sq_t = dx_t * dx_t + dy_t * dy_t
+            d_sq_b = dx_b * dx_b + dy_b * dy_b
+
+            if d_sq_t < cutoff_sq:
+                c_t = ball.radius_sq / max(0.001, d_sq_t)
+                if fireplace: c_t *= ball.temp
+                if ball.palette_id == 1: sum_bt += c_t
+                else: sum_at += c_t
+            if d_sq_b < cutoff_sq:
+                c_b = ball.radius_sq / max(0.001, d_sq_b)
+                if fireplace: c_b *= ball.temp
+                if ball.palette_id == 1: sum_bb += c_b
+                else: sum_ab += c_b
+
+        total_t = sum_at + sum_bt
+        total_b = sum_ab + sum_bb
+
         if fireplace:
-            # Sustained central flame core pillar (bicolor)
             bot = self.phys_height - 1.5
-            if py < bot:
-                dy_p = bot - py
+            if py_t < bot or py_b < bot:
                 h_max = self.phys_height * 0.45
-                h_frac = max(0.0, 1.0 - dy_p / h_max)
-                if h_frac > 0:
-                    cx = self.body_width / 2
-                    sway = math.sin(self._noise_time * 2.8 - py * 0.12) * (1.0 - h_frac) * 3.5
-                    dx_p = px - (cx + sway)
-                    r_p = self.body_width * 0.08 * (h_frac ** 1.5)
-                    if r_p > 0.1:
-                        pillar_contrib = (r_p * r_p) / (dx_p * dx_p + 0.6)
-                        total += pillar_contrib * (h_frac ** 0.5) * 2.5
-        
-        pid = 1 if sum_b > sum_a else 0
-        return (total, pid)
+                cx = self.body_width / 2
+                base_sway = self._noise_time * 2.8
+                if py_t < bot:
+                    dy_p = bot - py_t
+                    h_frac = max(0.0, 1.0 - dy_p / h_max)
+                    if h_frac > 0:
+                        sway = math.sin(base_sway - py_t * 0.12) * (1.0 - h_frac) * 3.5
+                        dx_p = px - (cx + sway)
+                        r_p = self.body_width * 0.08 * (h_frac ** 1.5)
+                        if r_p > 0.1:
+                            p_c = (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
+                            total_t += p_c; sum_at += p_c
+                if py_b < bot:
+                    dy_p = bot - py_b
+                    h_frac = max(0.0, 1.0 - dy_p / h_max)
+                    if h_frac > 0:
+                        sway = math.sin(base_sway - py_b * 0.12) * (1.0 - h_frac) * 3.5
+                        dx_p = px - (cx + sway)
+                        r_p = self.body_width * 0.08 * (h_frac ** 1.5)
+                        if r_p > 0.1:
+                            p_c = (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
+                            total_b += p_c; sum_ab += p_c
+
+        pid_t = 1 if sum_bt > sum_at else 0
+        pid_b = 1 if sum_bb > sum_ab else 0
+        return (total_t, pid_t), (total_b, pid_b)
 
     def _compute_noise_field(self, px, py):
         """Perlin noise field for liquid flow. Returns value in metaball-compatible range."""
@@ -1083,11 +1149,9 @@ class Lamp:
             for col in range(self.body_width):
                 px = col + 0.5
                 if self.bicolor:
-                    ft, t_pid = self.compute_field_bicolor(px, py_t + 0.5)
-                    fb, b_pid = self.compute_field_bicolor(px, py_b + 0.5)
+                    (ft, t_pid), (fb, b_pid) = self.compute_field_bicolor_dual(px, py_t + 0.5, py_b + 0.5)
                 else:
-                    ft = self.compute_field(px, py_t + 0.5)
-                    fb = self.compute_field(px, py_b + 0.5)
+                    ft, fb = self.compute_field_dual(px, py_t + 0.5, py_b + 0.5)
                     t_pid = b_pid = 0
                 tl = self.field_to_level(ft)
                 bl = self.field_to_level(fb)
@@ -1196,18 +1260,14 @@ class Lamp:
                 top_in = glt <= px <= grt
                 bot_in = glb <= px <= grb
 
+                if not top_in and not bot_in:
+                    ch.draw_cell(screen, sy, bx + col, -1, -1, 0, 0)
+                    continue
+
                 if self.bicolor:
-                    if top_in:
-                        ft, t_pid = self.compute_field_bicolor(px, py_t + 0.5)
-                    else:
-                        ft, t_pid = 0, 0
-                    if bot_in:
-                        fb, b_pid = self.compute_field_bicolor(px, py_b + 0.5)
-                    else:
-                        fb, b_pid = 0, 0
+                    (ft, t_pid), (fb, b_pid) = self.compute_field_bicolor_dual(px, py_t + 0.5, py_b + 0.5)
                 else:
-                    ft = self.compute_field(px, py_t + 0.5) if top_in else 0
-                    fb = self.compute_field(px, py_b + 0.5) if bot_in else 0
+                    ft, fb = self.compute_field_dual(px, py_t + 0.5, py_b + 0.5)
                     t_pid = b_pid = 0
 
                 tl = self.field_to_level(ft) if top_in else -1

@@ -4,6 +4,16 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0] - 2026-05-14
+
+### Performance
+
+- **Dual-field metaball optimization** (`lamp.py`, `menu.py`) - Implemented `compute_field_dual` and `compute_field_bicolor_dual` which calculate both top and bottom half-block field values in a single pass. Shared calculations (like `dx*dx`) are now performed once per cell rather than twice, significantly reducing the CPU load for the core rendering loop.
+- **Distance-based metaball cutoff** (`lamp.py`) - Added a `METABALL_CUTOFF_SQ` threshold. The engine now skips calculating contributions from blobs further than 20 units away, providing a massive speedup for large lamp styles and high-resolution terminals.
+- **Radius-squared caching** (`lamp.py`, `menu.py`) - Metaball radius squares are now pre-calculated on ball initialization, eliminating a multiplication operation from the inner loop of the field calculator.
+- **Koi Pond background pre-rendering** (`pond.py`) - Static elements like lily pads are now pre-rendered into a persistent background buffer (`_pad_buf`) on initialization or resize. The main render loop now performs a fast row-copy of this buffer instead of re-evaluating elliptical geometry and notch logic for every pad on every frame.
+- **Optimized chrome shading** (`lamp.py`) - Hoisted redundant calculations in `_chrome_shade` and simplified the rank-based scoring system for 3-tone curvature highlights.
+
 ## [1.9.0] - 2026-05-03
 
 ### Fixed
