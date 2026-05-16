@@ -49,7 +49,7 @@ A beautiful, interactive terminal lava lamp simulator with metaball physics, Per
 - **1-6 Lamps** - Display multiple lava lamps side by side
 - **5 Sizes** - 11.5", 14.5", 16.3", 17", and 27" Grande (default)
 - **Freestyle Mode** - Fullscreen lava with no lamp frame, filling the entire terminal
-- **Groovy Animated Menu** - Lava background, rotating taglines, live lamp preview panel (every selection renders a real miniature lamp or koi pond next to the menu), inline theme palette swatch, position counters, `R` for randomize, `1`–`5` to jump between fields
+- **Groovy Animated Menu** - Lava background, rotating taglines, live lamp preview panel (every selection renders a real miniature lamp or koi pond next to the menu), inline theme palette swatch, position counters, `R` for randomize, `1`–`6` to jump between fields
 - **Direct-launch CLI flags** - `lavacli --style koipond --theme koi_pond --duration 600` skips the menu entirely — perfect for tmux startup scripts and terminal screensavers
 - **Rim/Edge Glow** - Dual-threshold rendering gives lava blobs a glowing halo edge
 - **Resizable** - Lamps adapt when you resize the terminal, including ball radius scaling so blobs maintain proper proportions at any size
@@ -219,6 +219,7 @@ Inspired by the classic 1992-2004 Lava Library color codes with dark bases:
 | Cyberpunk | Neon pink and cyan | Black |
 | Matrix | Digital neon greens | Black |
 | Oceanic | Deep sea blues and cyans | Dark navy |
+| Christmas | Dark red → orange → gold → white-hot embers | Black hearth (pairs with the Christmas style) |
 
 ## Flow Types
 

@@ -85,6 +85,8 @@ def _config_from_args(args):
         theme = 'campfire'
     if style == 'xmas' and theme != 'xmas':
         theme = 'xmas'
+    # Note: 'fireplace' is intentionally NOT coupled to a theme — it's a
+    # generic ember field that reads well under any palette.
     if args.flow is not None:
         flow = args.flow
     if args.count is not None:
@@ -266,7 +268,7 @@ def _run_animation(screen, deadline, ch, state, draw_fn, update_fn,
         reset_fn(state, ch)                 — recreate animation object(s)
     """
     screen.timeout(frame_ms)
-    show_hud = state.setdefault('show_hud', True)
+    show_hud = True
 
     while True:
         if deadline is not None and time.monotonic() >= deadline:
@@ -403,7 +405,7 @@ def _run_lamp(screen, config, deadline=None):
 
     def _handle_key(key, st, ch_):
         if key == curses.KEY_RESIZE:
-            th, tw = scr.getmaxyx()
+            th, tw = screen.getmaxyx()
             st['term_h'], st['term_w'] = th, tw
             bw, bh, _, br, bhh, chh = calculate_lamp_dims(
                 tw, th, len(st['lamps']), config['size'], config['style'])
@@ -446,12 +448,23 @@ def _run_lamp(screen, config, deadline=None):
             bw, bh, nb, br, bhh, chh = calculate_lamp_dims(
                 st['term_w'], st['term_h'], st['lamp_count'],
                 config['size'], config['style'])
+            # Preserve user-tuned state across reset (matches donut behavior).
+            prev = st['lamps'][0] if st['lamps'] else None
+            prev_speed = prev.speed_mult if prev else 1.0
+            prev_trails = prev.trails if prev else False
+            prev_paused = prev.paused if prev else False
+            prev_flame_size = prev.flame_size if prev else 1
             st['lamps'].clear()
             for _ in range(st['lamp_count']):
-                st['lamps'].append(Lamp(config['style'], bw, bh,
-                                        config['flow'], nb, br, bhh, chh,
-                                        freestyle=st['is_fullscreen'],
-                                        bicolor=bool(st['bicolor_theme'])))
+                lamp = Lamp(config['style'], bw, bh,
+                            config['flow'], nb, br, bhh, chh,
+                            freestyle=st['is_fullscreen'],
+                            bicolor=bool(st['bicolor_theme']))
+                lamp.speed_mult = prev_speed
+                lamp.trails = prev_trails
+                lamp.paused = prev_paused
+                lamp.flame_size = prev_flame_size
+                st['lamps'].append(lamp)
             st['positions'] = (layout_lamps(st['lamps'], st['term_w'], st['term_h'])
                                if not st['is_fullscreen'] else [(0, 0)])
         return False
@@ -486,7 +499,7 @@ def _run_donut(screen, config, deadline=None):
 
     def _handle_key(key, st, ch_):
         if key == curses.KEY_RESIZE:
-            th, tw = scr.getmaxyx()
+            th, tw = screen.getmaxyx()
             st['term_h'], st['term_w'] = th, tw
             st['donut'].resize(tw, th - 1)
         elif key == ord(' '):
@@ -541,7 +554,7 @@ def _run_pond(screen, config, deadline=None):
 
     def _handle_key(key, st, ch_):
         if key == curses.KEY_RESIZE:
-            th, tw = scr.getmaxyx()
+            th, tw = screen.getmaxyx()
             st['term_h'], st['term_w'] = th, tw
             st['pond'].resize(tw, th - 1)
         elif key == ord(' '):

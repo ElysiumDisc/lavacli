@@ -4,6 +4,31 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] - 2026-05-16
+
+This is a stability + performance release that also consolidates accumulated polish. The major-version bump reflects the cumulative reach across modules (lamp/donut/pond/app) rather than a single breaking change — there is no CLI/menu surface change in this release.
+
+### Fixed
+
+- **Crash on terminal resize across all three animation modes** (`app.py`) - The three `_handle_key` closures in `_run_lamp`, `_run_donut`, and `_run_pond` each referenced an undefined `scr` instead of the enclosing `screen` parameter when handling `curses.KEY_RESIZE`. The first window resize while an animation was running raised `NameError`, taking down the curses session. All three sites now correctly use `screen.getmaxyx()`.
+- **Pond resize could divide by zero on `target_x` / `target_y` recompute** (`pond.py`) - `Pond.resize()` correctly guarded `old_w == 0` and `old_ph == 0` when scaling fish segment positions, but the very next block scaled each fish's `target_x` / `target_y` without the same guard. Pulled the divisions into the same ternary-guarded form so resizes from a zero-dim pond no longer crash.
+- **Lamp reset lost user-tuned state** (`app.py`) - Pressing `R` in a lamp animation rebuilt every `Lamp` with default `speed_mult` / `trails` / `paused` / `flame_size`, silently discarding the user's tuning. Now matches donut behavior: the previous lamp's state is captured and restored onto the new instances.
+- **Initial pond fish spawned in a deterministic pattern cycle** (`pond.py`) - `_init_fish` selected each fish's pattern via `weighted[i % len(weighted)]`, producing the same visual sequence every launch whenever `fish_count > len(weighted)`. Now uses `random.choice(weighted)`, matching the behavior of `add_fish`.
+
+### Performance
+
+- **`compute_body_screen_bounds` memoized** (`lamp.py`) - The per-row column-bounds list is fully determined by `body_width` and the static profile, but it was being recomputed every frame inside `Lamp.render`. Now cached on the instance and invalidated in `resize()`, eliminating one full profile-interpolation pass per frame.
+- **Cap / base render hoists out of the row loop** (`lamp.py`) - `_render_cap` and `_render_base` were re-evaluating `_get_cap_profile()` / `_get_base_profile()`, the `_denom` constant, `body_top_w / 2` (or `body_width / 2`), and the rocket-style flag on every row even though all four are invariant for the duration of a single render call. Lifted them above the `for row` loop.
+- **Fireplace metaball `math.sin` collapsed** (`lamp.py`) - In `compute_field_dual` and `compute_field_bicolor_dual`, the asymmetric teardrop sway `math.sin(noise_time * 2 + ball.x * 0.5)` was being recomputed separately in the top-half and bottom-half branches even though the argument is identical for both. Hoisted to a single `sway` local per ball, plus `noise_time * 2.0` lifted out of the per-ball loop entirely.
+- **Donut `BOLD_MAP` no longer reallocated per frame** (`donut.py`) - The 5-tuple lived inside `Donut.render()` and was rebuilt on every frame; promoted to a module-level constant.
+- **Donut theme switch no longer copies the palette** (`donut.py`) - `set_theme()` was wrapping `t['lava']` in `list()`, allocating a new 5-element list every theme change. The palette is read-only, so the underlying tuple is now used directly.
+
+### Internal
+
+- **`show_hud` is no longer leaked into the shared state dict** (`app.py`) - `_run_animation` was using `state.setdefault('show_hud', True)` then toggling a local `show_hud` that diverged from the dict entry. The dict was never read elsewhere, but the divergence was a latent footgun. `show_hud` is now purely local to the loop.
+- **`fireplace` style → theme coupling intentionally absent** (`app.py`) - `campfire` and `xmas` styles force their matching themes; `fireplace` does not, because it's a generic ember field that reads well under any palette. Documented inline to prevent future drift.
+- **Misc readability** (`donut.py`) - Simplified the Glow-mode color clamp; added a one-line comment explaining `prev_shade`'s negative-modulo idiom.
+
 ## [1.10.0] - 2026-05-14
 
 ### Performance

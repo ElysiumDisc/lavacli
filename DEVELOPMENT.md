@@ -62,7 +62,7 @@ python3 run.py
 | `app.py` | argparse CLI layer (incl. `--bicolor`), curses setup, shared `_run_animation()` loop (~20fps) used by all three modes, per-mode callback factories (`_run_lamp`, `_run_donut`, `_run_pond`), layout, resize handling, menu-to-lamp/pond flow, `--duration` deadline handling for screensaver mode |
 | `donut.py` | Spinning ASCII torus: Andy Sloane's donut.c geometry ported to half-block cells, pre-computed sin/cos lookup tables for theta/phi steps (eliminates ~28,000 trig calls per frame), z-buffer + color buffer, 5 shade modes (Smooth, Glow, Bold, Dim, Iced), theme-based palette rendering |
 | `lamp.py` | Core lava simulation: shape profiles (incl. rocket and fireplace), `Ball`/`Lamp` classes, metaball field computation (optimized **dual-field pass** for top/bottom half-blocks, **distance-based cutoff** for high performance), fireplace/campfire ember physics (`_update_fireplace`), Perlin noise field, trail buffer + decay, half-block rendering, solid base/cap/frame rendering, binary-search profile interpolation via `_interpolate_profile()` with pre-cached y-keys |
-| `pond.py` | Koi pond simulation: `Segment`/`Fish`/`LilyPad`/`Pond` classes, skeletal segment physics, lily pad rasterization with V-notch + 3-tone shading, **pre-rendered static background buffer** for pads, buffer-based fish body rasterization, pectoral fin and tail fin rendering |
+| `pond.py` | Koi pond simulation: `Segment`/`Fish`/`LilyPad`/`Pond` classes, skeletal segment physics, lily pad rasterization with V-notch + 3-tone shading, **pre-rendered static background buffer** for pads, buffer-based fish body rasterization, pectoral fin and tail fin rendering. Fish patterns are picked via `random.choice(_WEIGHTED_PATTERNS)` — a small list that biases toward kohaku/sanke for stronger contrast against dark water |
 | `noise.py` | Pure-Python 3D Perlin noise implementation with fractal Brownian motion (FBM) for the Liquid flow type. `noise3()` computes each coordinate's floor once for both integer index and fractional part |
 | `themes.py` | 17 theme definitions (classic Lava Library colors + modern neon themes + Koi Pond + Aurora + Campfire + Christmas), 6 koi color patterns, `ColorHelper` for curses color pair management with bi-color secondary palette + lazy pair allocation (`set_secondary_theme`, `_lazy_color_pair`), frame/base/cell/pond/donut/scene drawing methods, `_resolve_fish_color()` with safe fallback for unknown patterns |
 | `menu.py` | Animated TUI menu with lava background, groovy taglines, and a live preview panel (`_build_preview` / `_render_preview`) that instantiates a real miniature `Lamp` or `Pond` for the currently-selected configuration. Includes inline theme palette swatch, `(n/total)` position counters, `TINT` bi-color field, `R` randomize, `1`–`6` field jumps, and wrap-around navigation |
@@ -85,7 +85,7 @@ The shared loop eliminates ~120 lines of duplicated code across `_run_lamp`, `_r
 
 Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 0-1 (top to bottom) and `width` ranges 0-1 (fraction of max width). Interpolation uses smoothstep (cubic Hermite) for smooth curves. The `_interpolate_profile()` function uses binary search (`bisect`) on pre-computed y-key arrays cached at module load time, making lookup O(log n) instead of O(n). For the 25-point `BASE_PROFILE` this avoids up to 25 comparisons per call when rendering cap and base cells.
 
-12 styles available:
+14 styles available:
 
 | Style | Shape | Profile |
 |-------|-------|---------|
@@ -100,7 +100,9 @@ Shapes are defined as normalized profiles: `[(y, width), ...]` where `y` ranges 
 | Freestyle | Full-width rectangle | `SHAPES['freestyle']` (no frame) |
 | Koi Pond | Fullscreen animated fish | `SHAPES['koipond']` (dispatches to `pond.py`) |
 | Fireplace | Fullscreen rising embers (inverted gravity, temperature-scaled metaball field, teardrop flame shaping, procedural 3D logs and pine forest background) | `SHAPES['fireplace']` + `FLOW_PARAMS['fireplace']` + `Lamp._update_fireplace()` + `Lamp._get_campfire_log_color()` + `Lamp._get_forest_bg_color()` |
+| Campfire | Same ember physics as Fireplace, always with the layered pine forest + starry sky background | `SHAPES['campfire']` + `FLOW_PARAMS['fireplace']` + `Lamp._get_forest_bg_color()` |
 | Donut | Fullscreen spinning ASCII torus | `SHAPES['donut']` (dispatches to `donut.py`) |
+| Christmas | Fullscreen indoor Christmas fireplace — pure procedural flame (no ball physics), brick surround, mantel, stockings, stone hearth, hardwood floor | `SHAPES['xmas']` + `Lamp._get_xmas_bg_color()` (flame_size cycles via B/V) |
 
 Style-specific profiles are selected via `Lamp._get_cap_profile()` and `Lamp._get_base_profile()`. The default base uses `BASE_PROFILE` (hourglass pedestal), rocket uses `ROCKET_BASE_PROFILE` (swept fins), and cylinder uses `CYLINDER_BASE_PROFILE` (simple cone).
 

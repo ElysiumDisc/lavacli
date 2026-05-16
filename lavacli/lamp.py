@@ -366,6 +366,8 @@ class Lamp:
         # per (row, col) cell; only populated while `trails` is on.
         self.trails = False
         self.trail_buffer = None
+        # Memoized result of compute_body_screen_bounds(); invalidated on resize.
+        self._body_bounds_cache = None
 
         # Place balls inside the glass area (not the metallic frame)
         self.balls = []
@@ -419,7 +421,15 @@ class Lamp:
         return (center - half, center + half)
 
     def compute_body_screen_bounds(self):
-        """Integer column bounds for each body row."""
+        """Integer column bounds for each body row.
+
+        Memoized: result is fully determined by body_width / body_height /
+        profile, all static between resizes. Cache is cleared in resize().
+        """
+        cached = self._body_bounds_cache
+        if cached is not None:
+            return cached
+
         bounds = []
         for row in range(self.body_height):
             py_t = row * 2
@@ -442,6 +452,7 @@ class Lamp:
                 m = (l + r) // 2
                 l, r = m, m
             bounds[i] = (l, r)
+        self._body_bounds_cache = bounds
         return bounds
 
     def get_glass_bounds(self, phys_y):
@@ -645,6 +656,7 @@ class Lamp:
         total_b = 0.0
         fireplace = self.style in ('fireplace', 'campfire')
         cutoff_sq = self.METABALL_CUTOFF_SQ
+        twice_noise_time = self._noise_time * 2.0
 
         for ball in self.balls:
             dx = px - ball.x
@@ -656,19 +668,12 @@ class Lamp:
             dy_b_base = py_b - ball.y
 
             if fireplace:
-                # Top half
+                # sin depends only on noise_time and ball.x; compute once per ball.
+                sway = math.sin(twice_noise_time + ball.x * 0.5)
                 dy_t = dy_t_base * 1.2 if dy_t_base > 0 else dy_t_base * 0.3
-                if dy_t_base <= 0:
-                    dx_t = dx + math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_t_base * 0.4
-                else:
-                    dx_t = dx
-                
-                # Bottom half
+                dx_t = (dx + sway * dy_t_base * 0.4) if dy_t_base <= 0 else dx
                 dy_b = dy_b_base * 1.2 if dy_b_base > 0 else dy_b_base * 0.3
-                if dy_b_base <= 0:
-                    dx_b = dx + math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_b_base * 0.4
-                else:
-                    dx_b = dx
+                dx_b = (dx + sway * dy_b_base * 0.4) if dy_b_base <= 0 else dx
             else:
                 dy_t = dy_t_base * 0.55
                 dy_b = dy_b_base * 0.55
@@ -723,6 +728,7 @@ class Lamp:
         sum_at = sum_bt = sum_ab = sum_bb = 0.0
         fireplace = self.style in ('fireplace', 'campfire')
         cutoff_sq = self.METABALL_CUTOFF_SQ
+        twice_noise_time = self._noise_time * 2.0
 
         for ball in self.balls:
             dx = px - ball.x
@@ -734,19 +740,12 @@ class Lamp:
             dy_b_base = py_b - ball.y
 
             if fireplace:
-                # Top half
+                # sin depends only on noise_time and ball.x; compute once per ball.
+                sway = math.sin(twice_noise_time + ball.x * 0.5)
                 dy_t = dy_t_base * 1.2 if dy_t_base > 0 else dy_t_base * 0.3
-                if dy_t_base <= 0:
-                    dx_t = dx + math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_t_base * 0.4
-                else:
-                    dx_t = dx
-                
-                # Bottom half
+                dx_t = (dx + sway * dy_t_base * 0.4) if dy_t_base <= 0 else dx
                 dy_b = dy_b_base * 1.2 if dy_b_base > 0 else dy_b_base * 0.3
-                if dy_b_base <= 0:
-                    dx_b = dx + math.sin(self._noise_time * 2.0 + ball.x * 0.5) * dy_b_base * 0.4
-                else:
-                    dx_b = dx
+                dx_b = (dx + sway * dy_b_base * 0.4) if dy_b_base <= 0 else dx
             else:
                 dy_t = dy_t_base * 0.55
                 dy_b = dy_b_base * 0.55
@@ -1301,6 +1300,12 @@ class Lamp:
         """Render the small metallic cap above the glass body."""
         top_left, top_right = top_bounds
         body_top_w = top_right - top_left + 1
+        # Cap profile and reference width are invariant for the whole cap.
+        _cp = self._get_cap_profile()
+        _denom = max(1, self.cap_height * 2)
+        center = body_top_w / 2
+        is_rocket = self.style == 'rocket'
+        body_w_minus_1 = self.body_width - 1
 
         for row in range(self.cap_height):
             norm_y = row / max(1, self.cap_height - 1) if self.cap_height > 1 else 1.0
@@ -1308,19 +1313,16 @@ class Lamp:
             left = int(math.ceil(cl)) + top_left
             right = int(math.floor(cr)) - 1 + top_left
             left = max(0, left)
-            right = min(self.body_width - 1, right)
+            right = min(body_w_minus_1, right)
             sy = y_off + row
 
             # Cap shape and half-row widths depend only on row; hoist them.
             py_t = row * 2
             py_b = row * 2 + 1
-            _cp = self._get_cap_profile()
-            _denom = max(1, self.cap_height * 2)
             cap_w_t = _interpolate_profile(_cp, py_t / _denom) * body_top_w
             cap_w_b = _interpolate_profile(_cp, py_b / _denom) * body_top_w
             half_t = cap_w_t / 2
             half_b = cap_w_b / 2
-            center = body_top_w / 2
 
             for col in range(left, right + 1):
                 px = col - top_left + 0.5
@@ -1336,7 +1338,7 @@ class Lamp:
                     shade = 'sh'
                 # Rocket: blend in a horizontal chrome stripe so the
                 # nose cone reads as polished metal, not flat plastic.
-                if self.style == 'rocket':
+                if is_rocket:
                     # col is in absolute body-grid coords; use absolute
                     # body_width as the reference span
                     shade = self._chrome_shade(col, self.body_width,
@@ -1347,6 +1349,13 @@ class Lamp:
         """Render the metallic tapered pedestal below the glass body."""
         bot_left, bot_right = bot_bounds
         body_bot_w = bot_right - bot_left + 1
+        # Base profile and reference width are invariant for the whole base.
+        _bp = self._get_base_profile()
+        is_rocket = self.style == 'rocket'
+        ref_w = self.body_width if is_rocket else body_bot_w
+        _denom = max(1, self.base_height * 2)
+        cx = self.body_width / 2
+        body_w_minus_1 = self.body_width - 1
 
         for row in range(self.base_height):
             norm_y = row / max(1, self.base_height - 1) if self.base_height > 1 else 1.0
@@ -1356,20 +1365,16 @@ class Lamp:
             left = int(math.ceil(bl))
             right = int(math.floor(br)) - 1
             left = max(0, left)
-            right = min(self.body_width - 1, right)
+            right = min(body_w_minus_1, right)
             sy = base_y + row
 
             # Base shape and half-row widths depend only on row; hoist them.
             py_t = row * 2
             py_b = row * 2 + 1
-            _bp = self._get_base_profile()
-            ref_w = self.body_width if self.style == 'rocket' else body_bot_w
-            _denom = max(1, self.base_height * 2)
             bw_t = _interpolate_profile(_bp, py_t / _denom) * ref_w
             bw_b = _interpolate_profile(_bp, py_b / _denom) * ref_w
             half_t = bw_t / 2
             half_b = bw_b / 2
-            cx = self.body_width / 2
 
             for col in range(left, right + 1):
                 px = col + 0.5  # absolute body-grid position
@@ -1392,7 +1397,7 @@ class Lamp:
                     shade = 'hi'    # bright foot/lip
                 # Rocket: overlay the chrome curvature stripe so the
                 # fins and stem read as polished metal.
-                if self.style == 'rocket':
+                if is_rocket:
                     shade = self._chrome_shade(col, self.body_width,
                                                norm_y, shade)
                 ch.draw_base_cell(screen, sy, bx + col, t_in, b_in, shade=shade)
@@ -1445,3 +1450,4 @@ class Lamp:
             ball.y = ball.y * self.phys_height / old_ph if old_ph > 0 else self.phys_height / 2
         # Trail buffer dims no longer match; force reallocation next frame
         self.trail_buffer = None
+        self._body_bounds_cache = None

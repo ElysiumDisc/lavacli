@@ -95,15 +95,16 @@ class Fish:
         # Direction to target
         dx = self.target_x - head.x
         dy = self.target_y - head.y
-        dist = math.sqrt(dx * dx + dy * dy)
+        dist_sq = dx * dx + dy * dy
 
-        if dist < 5.0:
+        if dist_sq < 25.0:  # 5.0 ** 2: close enough — pick a fresh target
             margin = max(10, min(self.pond_w, self.pond_h) * 0.1)
             self.target_x = random.uniform(margin, self.pond_w - margin)
             self.target_y = random.uniform(margin, self.pond_h - margin)
             dx = self.target_x - head.x
             dy = self.target_y - head.y
-            dist = math.sqrt(dx * dx + dy * dy)
+            dist_sq = dx * dx + dy * dy
+        dist = math.sqrt(dist_sq)
 
         if dist > 0.01:
             nx, ny = dx / dist, dy / dist
@@ -171,10 +172,10 @@ class Pond:
         weighted = [p for p in _WEIGHTED_PATTERNS if p in KOI_PATTERN_NAMES]
         if not weighted:
             weighted = list(KOI_PATTERN_NAMES) or ['kohaku']
-        for i in range(count):
+        for _ in range(count):
             x = random.uniform(15, max(16, self.width - 15))
             y = random.uniform(15, max(16, self.phys_h - 15))
-            pattern = weighted[i % len(weighted)]
+            pattern = random.choice(weighted)
             self.fish_list.append(Fish(x, y, self.width, self.phys_h, pattern))
 
     def _init_lily_pads(self):
@@ -407,10 +408,10 @@ class Pond:
                 seg.y = seg.y * self.phys_h / old_ph if old_ph > 0 else self.phys_h / 2
             fish.pond_w = new_width
             fish.pond_h = self.phys_h
-            fish.target_x = max(10, min(fish.target_x * new_width / old_w,
-                                        new_width - 10))
-            fish.target_y = max(10, min(fish.target_y * self.phys_h / old_ph,
-                                        self.phys_h - 10))
+            tx = fish.target_x * new_width / old_w if old_w > 0 else new_width / 2
+            ty = fish.target_y * self.phys_h / old_ph if old_ph > 0 else self.phys_h / 2
+            fish.target_x = max(10, min(tx, new_width - 10))
+            fish.target_y = max(10, min(ty, self.phys_h - 10))
         self._render_buf = [[None] * new_width for _ in range(new_height * 2)]
         # Regenerate lily pads for the new pond dimensions
         self._init_lily_pads()

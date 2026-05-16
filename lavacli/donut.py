@@ -49,6 +49,9 @@ ICING_DOUGH = (94, 130, 136, 178, 220)
 # Icing: pale pink → light pink → fuchsia → hot pink → white specular
 ICING_PINK  = (225, 219, 213, 207, 231)
 
+# Bold shade-map: [Lambertian level 0-4] → [palette index] (compresses mid-tones)
+BOLD_MAP = (0, 0, 2, 4, 4)
+
 
 class Donut:
     """Fullscreen spinning torus. Compatible with the app's run loop."""
@@ -93,8 +96,8 @@ class Donut:
         if theme_name not in THEMES:
             theme_name = THEME_ORDER[0]
         t = THEMES[theme_name]
-        self._palette = list(t['lava'])          # 5 ANSI-256 color codes, dark→bright
         lava = t['lava']
+        self._palette = lava                     # 5 ANSI-256 color codes, dark→bright
         self._rim = t.get('rim', lava[-1])       # edge/specular highlight color
 
     def update(self):
@@ -116,6 +119,7 @@ class Donut:
         self.shade_mode = (self.shade_mode + 1) % len(SHADE_MODE_NAMES)
 
     def prev_shade(self):
+        # Python's `(-1) % n == n - 1`, so this wraps to the last mode correctly.
         self.shade_mode = (self.shade_mode - 1) % len(SHADE_MODE_NAMES)
 
     def render(self, screen, ch, x_off=0, y_off=0):
@@ -155,10 +159,7 @@ class Donut:
         shade_mode = self.shade_mode
         icing_dough = ICING_DOUGH
         icing_pink  = ICING_PINK
-
-        # Bold shade-map: compresses mid-tones into the extremes.
-        # [Lambertian level 0-4] → [palette index]
-        BOLD_MAP = (0, 0, 2, 4, 4)
+        bold_map = BOLD_MAP
 
         # Pre-computed sin/cos LUTs replace ~28,000 trig calls per frame
         sinj_lut = self._sinj
@@ -202,10 +203,10 @@ class Donut:
                                     color = icing_dough[min(4, int(L * 5.0))]
                             elif shade_mode == 1:  # glow: 5 shades + rim on top 1/6
                                 lvl = int(L * 6.0)
-                                color = rim if lvl >= 5 else palette[lvl if lvl < 5 else 4]
+                                color = rim if lvl >= 5 else palette[min(lvl, 4)]
                             elif shade_mode == 2:  # bold: high contrast
                                 lvl = min(4, int(L * 5.0))
-                                color = palette[BOLD_MAP[lvl]]
+                                color = palette[bold_map[lvl]]
                             elif shade_mode == 3:  # dim: shift one step darker
                                 color = palette[max(0, min(4, int(L * 5.0)) - 1)]
                             else:                  # smooth (default)
