@@ -3,6 +3,7 @@ import curses
 import math
 import random
 from bisect import bisect as _bisect
+from bisect import bisect_right as _bisect_right
 
 from .noise import fbm3
 
@@ -368,6 +369,18 @@ class Lamp:
         self.trail_buffer = None
         # Memoized result of compute_body_screen_bounds(); invalidated on resize.
         self._body_bounds_cache = None
+        # Static scene buffers (campfire forest + logs): time-invariant, built
+        # once per resize. Indexed by [py][px] where py is physical half-row.
+        self._forest_buf = None
+        self._log_buf = None
+
+        # Build static scene buffers up front so the first frame has no stall.
+        # Both styles share the log scene; campfire adds a forest backdrop.
+        # The fireplace style's bg can also become a forest when the user
+        # picks the 'campfire' theme at runtime, so build both buffers for
+        # either style.
+        if style in ('fireplace', 'campfire'):
+            self._build_scene_buffers()
 
         # Place balls inside the glass area (not the metallic frame)
         self.balls = []
@@ -647,18 +660,41 @@ class Lamp:
 
     METABALL_CUTOFF_SQ = 400.0  # (20 units)^2
 
-    def compute_field_dual(self, px, py_t, py_b):
-        """Compute field for both top and bottom half-blocks in one pass."""
-        if self.flow_type == 'liquid':
-            return self._compute_noise_field(px, py_t), self._compute_noise_field(px, py_b)
+    def compute_field_cell(self, px, py_t, py_b):
+        """Compute metaball field for both half-blocks of a cell in one pass.
 
-        total_t = 0.0
-        total_b = 0.0
-        fireplace = self.style in ('fireplace', 'campfire')
+        Always returns ``(ft, t_pid, fb, b_pid)``. When ``self.bicolor`` is
+        False the palette IDs are always 0. Liquid (noise) flow takes its
+        own short path; everything else shares the same ball loop and
+        fireplace-pillar accounting.
+        """
+        bicolor = self.bicolor
+
+        if self.flow_type == 'liquid':
+            # Top and bottom half-blocks differ by only one physical unit;
+            # sample the noise field once at the cell midpoint and reuse it
+            # for both halves. fbm3 is the dominant cost in liquid flow
+            # (~21 noise3 lookups per call at 3 octaves), and halving the
+            # rate is visually indistinguishable at half-block resolution.
+            py_mid = (py_t + py_b) * 0.5
+            f = self._compute_noise_field(px, py_mid)
+            if not bicolor:
+                return f, 0, f, 0
+            t = self._noise_time
+            mt = math.sin(t * 0.5 + px * 0.18 + py_t * 0.13)
+            mb = math.sin(t * 0.5 + px * 0.18 + py_b * 0.13)
+            return f, (1 if mt > 0 else 0), f, (1 if mb > 0 else 0)
+
+        # Hoist hot-path locals out of attribute lookups
+        balls = self.balls
         cutoff_sq = self.METABALL_CUTOFF_SQ
+        fireplace = self.style in ('fireplace', 'campfire')
         twice_noise_time = self._noise_time * 2.0
 
-        for ball in self.balls:
+        sum_at = sum_ab = 0.0
+        sum_bt = sum_bb = 0.0
+
+        for ball in balls:
             dx = px - ball.x
             dx_sq = dx * dx
             if dx_sq > cutoff_sq:
@@ -668,7 +704,6 @@ class Lamp:
             dy_b_base = py_b - ball.y
 
             if fireplace:
-                # sin depends only on noise_time and ball.x; compute once per ball.
                 sway = math.sin(twice_noise_time + ball.x * 0.5)
                 dy_t = dy_t_base * 1.2 if dy_t_base > 0 else dy_t_base * 0.3
                 dx_t = (dx + sway * dy_t_base * 0.4) if dy_t_base <= 0 else dx
@@ -682,12 +717,24 @@ class Lamp:
             d_sq_t = dx_t * dx_t + dy_t * dy_t
             d_sq_b = dx_b * dx_b + dy_b * dy_b
 
+            is_b = bicolor and ball.palette_id == 1
+
             if d_sq_t < cutoff_sq:
                 c_t = ball.radius_sq / max(0.001, d_sq_t)
-                total_t += c_t * ball.temp if fireplace else c_t
+                if fireplace:
+                    c_t *= ball.temp
+                if is_b:
+                    sum_bt += c_t
+                else:
+                    sum_at += c_t
             if d_sq_b < cutoff_sq:
                 c_b = ball.radius_sq / max(0.001, d_sq_b)
-                total_b += c_b * ball.temp if fireplace else c_b
+                if fireplace:
+                    c_b *= ball.temp
+                if is_b:
+                    sum_bb += c_b
+                else:
+                    sum_ab += c_b
 
         if fireplace:
             bot = self.phys_height - 1.5
@@ -695,8 +742,9 @@ class Lamp:
                 h_max = self.phys_height * 0.45
                 cx = self.body_width / 2
                 base_sway = self._noise_time * 2.8
-                
-                # Top pillar
+                # Fireplace pillar splits equally across palettes so the
+                # central flame inherits whichever palette dominates among
+                # the surrounding ball contributions.
                 if py_t < bot:
                     dy_p = bot - py_t
                     h_frac = max(0.0, 1.0 - dy_p / h_max)
@@ -705,9 +753,13 @@ class Lamp:
                         dx_p = px - (cx + sway)
                         r_p = self.body_width * 0.08 * (h_frac ** 1.5)
                         if r_p > 0.1:
-                            total_t += (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
-                
-                # Bottom pillar
+                            p_c = (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
+                            if bicolor:
+                                half = p_c * 0.5
+                                sum_at += half
+                                sum_bt += half
+                            else:
+                                sum_at += p_c
                 if py_b < bot:
                     dy_p = bot - py_b
                     h_frac = max(0.0, 1.0 - dy_p / h_max)
@@ -716,88 +768,21 @@ class Lamp:
                         dx_p = px - (cx + sway)
                         r_p = self.body_width * 0.08 * (h_frac ** 1.5)
                         if r_p > 0.1:
-                            total_b += (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
-
-        return total_t, total_b
-
-    def compute_field_bicolor_dual(self, px, py_t, py_b):
-        """Compute bicolor field for both top and bottom half-blocks in one pass."""
-        if self.flow_type == 'liquid':
-            return (self._compute_noise_field(px, py_t), 0), (self._compute_noise_field(px, py_b), 0)
-
-        sum_at = sum_bt = sum_ab = sum_bb = 0.0
-        fireplace = self.style in ('fireplace', 'campfire')
-        cutoff_sq = self.METABALL_CUTOFF_SQ
-        twice_noise_time = self._noise_time * 2.0
-
-        for ball in self.balls:
-            dx = px - ball.x
-            dx_sq = dx * dx
-            if dx_sq > cutoff_sq:
-                continue
-
-            dy_t_base = py_t - ball.y
-            dy_b_base = py_b - ball.y
-
-            if fireplace:
-                # sin depends only on noise_time and ball.x; compute once per ball.
-                sway = math.sin(twice_noise_time + ball.x * 0.5)
-                dy_t = dy_t_base * 1.2 if dy_t_base > 0 else dy_t_base * 0.3
-                dx_t = (dx + sway * dy_t_base * 0.4) if dy_t_base <= 0 else dx
-                dy_b = dy_b_base * 1.2 if dy_b_base > 0 else dy_b_base * 0.3
-                dx_b = (dx + sway * dy_b_base * 0.4) if dy_b_base <= 0 else dx
-            else:
-                dy_t = dy_t_base * 0.55
-                dy_b = dy_b_base * 0.55
-                dx_t = dx_b = dx
-
-            d_sq_t = dx_t * dx_t + dy_t * dy_t
-            d_sq_b = dx_b * dx_b + dy_b * dy_b
-
-            if d_sq_t < cutoff_sq:
-                c_t = ball.radius_sq / max(0.001, d_sq_t)
-                if fireplace: c_t *= ball.temp
-                if ball.palette_id == 1: sum_bt += c_t
-                else: sum_at += c_t
-            if d_sq_b < cutoff_sq:
-                c_b = ball.radius_sq / max(0.001, d_sq_b)
-                if fireplace: c_b *= ball.temp
-                if ball.palette_id == 1: sum_bb += c_b
-                else: sum_ab += c_b
+                            p_c = (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
+                            if bicolor:
+                                half = p_c * 0.5
+                                sum_ab += half
+                                sum_bb += half
+                            else:
+                                sum_ab += p_c
 
         total_t = sum_at + sum_bt
         total_b = sum_ab + sum_bb
-
-        if fireplace:
-            bot = self.phys_height - 1.5
-            if py_t < bot or py_b < bot:
-                h_max = self.phys_height * 0.45
-                cx = self.body_width / 2
-                base_sway = self._noise_time * 2.8
-                if py_t < bot:
-                    dy_p = bot - py_t
-                    h_frac = max(0.0, 1.0 - dy_p / h_max)
-                    if h_frac > 0:
-                        sway = math.sin(base_sway - py_t * 0.12) * (1.0 - h_frac) * 3.5
-                        dx_p = px - (cx + sway)
-                        r_p = self.body_width * 0.08 * (h_frac ** 1.5)
-                        if r_p > 0.1:
-                            p_c = (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
-                            total_t += p_c; sum_at += p_c
-                if py_b < bot:
-                    dy_p = bot - py_b
-                    h_frac = max(0.0, 1.0 - dy_p / h_max)
-                    if h_frac > 0:
-                        sway = math.sin(base_sway - py_b * 0.12) * (1.0 - h_frac) * 3.5
-                        dx_p = px - (cx + sway)
-                        r_p = self.body_width * 0.08 * (h_frac ** 1.5)
-                        if r_p > 0.1:
-                            p_c = (r_p * r_p) / (dx_p * dx_p + 0.6) * (h_frac ** 0.5) * 2.5
-                            total_b += p_c; sum_ab += p_c
-
-        pid_t = 1 if sum_bt > sum_at else 0
-        pid_b = 1 if sum_bb > sum_ab else 0
-        return (total_t, pid_t), (total_b, pid_b)
+        if bicolor:
+            pid_t = 1 if sum_bt > sum_at else 0
+            pid_b = 1 if sum_bb > sum_ab else 0
+            return total_t, pid_t, total_b, pid_b
+        return total_t, 0, total_b, 0
 
     def _compute_noise_field(self, px, py):
         """Perlin noise field for liquid flow. Returns value in metaball-compatible range."""
@@ -826,7 +811,10 @@ class Lamp:
 
     @staticmethod
     def _trail_decay_level(base_level, frames_left):
-        """Map a remembered level + remaining life to a dimmed render level."""
+        """Map a remembered level + remaining life to a dimmed render level.
+        Returns 0 for cells that were liquid or outside the glass — those
+        contribute no ghost.  The ``-1`` sentinel ("outside glass") therefore
+        round-trips safely without painting spurious liquid pixels."""
         if base_level <= 0 or frames_left <= 0:
             return 0
         frac = frames_left / float(Lamp.TRAIL_LIFE)
@@ -839,25 +827,56 @@ class Lamp:
             return min(base_level, 1)
         return 6  # rim/halo color for the last quarter of the tail
 
+    def _apply_trail(self, row, col, tl, bl, t_pid, b_pid):
+        """Update the trail buffer for one cell and return (gtl, gbl, gt_pid,
+        gb_pid, painted) describing the ghost levels to render this frame.
+
+        ``painted=False`` means there is no ghost to draw (no live lava and no
+        active trail) — the caller should fall through to the normal draw.
+        Otherwise the caller should draw the returned levels instead.
+
+        Sentinel ``-1`` ("outside glass") is preserved end-to-end so the body
+        renderer can keep the lamp's interior crisp at the glass boundary.
+        """
+        entry = self.trail_buffer[row][col]
+        has_lava = (tl > 0) or (bl > 0)
+        if has_lava:
+            entry[0] = tl
+            entry[1] = bl
+            entry[2] = self.TRAIL_LIFE
+            entry[3] = t_pid
+            entry[4] = b_pid
+            return tl, bl, t_pid, b_pid, False
+        if entry[2] > 0:
+            gtl = self._trail_decay_level(entry[0], entry[2])
+            gbl = self._trail_decay_level(entry[1], entry[2])
+            entry[2] -= 1
+            if gtl > 0 or gbl > 0:
+                # If the live cell is outside the glass on either half, keep
+                # that sentinel so the renderer doesn't bleed liquid color
+                # past the glass curve.
+                if tl < 0:
+                    gtl = -1
+                if bl < 0:
+                    gbl = -1
+                return gtl, gbl, entry[3], entry[4], True
+        return tl, bl, t_pid, b_pid, False
+
     RIM_THRESHOLD = 0.55
+    # Boundaries for the 1..5 lava levels (must stay sorted ascending).
+    _LEVEL_BOUNDS = (1.5, 2.2, 3.2, 4.5)
 
     @staticmethod
     def field_to_level(field):
-        """0=liquid, 1-5=lava intensity, 6=rim (glow edge)."""
+        """0=liquid, 1-5=lava intensity, 6=rim (glow edge).
+        Uses ``bisect_right`` for the hot path instead of a 6-step if-chain.
+        """
         if field < Lamp.RIM_THRESHOLD:
             return 0
-        elif field < 1.0:
-            return 6   # rim: glowing edge around blobs
-        elif field < 1.5:
-            return 1
-        elif field < 2.2:
-            return 2
-        elif field < 3.2:
-            return 3
-        elif field < 4.5:
-            return 4
-        else:
-            return 5
+        if field < 1.0:
+            return 6  # rim: glowing edge around blobs
+        # field >= 1.0 → level in 1..5 via boundary lookup
+        return _bisect_right(Lamp._LEVEL_BOUNDS, field) + 1
 
     # ----- Rendering -----
 
@@ -877,7 +896,46 @@ class Lamp:
         self._render_base(screen, body_x, body_y + self.body_height,
                           body_bounds[-1], ch)
 
-    def _get_forest_bg_color(self, px, py):
+    def _build_scene_buffers(self):
+        """Pre-render the time-invariant campfire scene into 2D lookup tables.
+        Both forest backdrop and log pile are deterministic from (px, py),
+        so we compute them once per resize instead of every cell every frame.
+        """
+        w = max(1, self.body_width)
+        ph = max(1, self.phys_height)
+        forest = [[None] * w for _ in range(ph)]
+        logs = [[None] * w for _ in range(ph)]
+        for py in range(ph):
+            for px in range(w):
+                forest[py][px] = self._compute_forest_bg(px + 0.5, py + 0.5)
+                logs[py][px] = self._compute_log_color(px + 0.5, py + 0.5)
+        self._forest_buf = forest
+        self._log_buf = logs
+
+    def _get_forest_bg(self, px, py):
+        """Look up cached forest bg color for a half-block at (px, py).
+        Falls back to the live computation if the buffer isn't built yet."""
+        buf = self._forest_buf
+        if buf is None:
+            return self._compute_forest_bg(px, py)
+        ix = int(px)
+        iy = int(py)
+        if 0 <= iy < len(buf) and 0 <= ix < len(buf[0]):
+            return buf[iy][ix]
+        return None
+
+    def _get_log_color(self, px, py):
+        """Look up cached log color for a half-block at (px, py)."""
+        buf = self._log_buf
+        if buf is None:
+            return self._compute_log_color(px, py)
+        ix = int(px)
+        iy = int(py)
+        if 0 <= iy < len(buf) and 0 <= ix < len(buf[0]):
+            return buf[iy][ix]
+        return None
+
+    def _compute_forest_bg(self, px, py):
         """Returns ANSI color code for layered pine tree silhouette background, or None."""
         # Rolling ground hill at the bottom
         ground_y = self.phys_height - 1.5 - math.sin(px * 0.12) * 2.0
@@ -903,13 +961,17 @@ class Lamp:
             (10.0, 0.22, 8.0, 15.0, 233, 234),
         ]
 
-        for spacing, slope, h_var, y_off, c_main, c_edge in layers:
+        for layer_idx, (spacing, slope, h_var, y_off, c_main, c_edge) in enumerate(layers):
             # Deterministic local grid
             grid_x = int(px / spacing)
             for dx in (-1, 0, 1):
                 idx = grid_x + dx
-                # Simple hash for height and x-offset
-                h = (idx * 17 ^ idx * 31) % 100 / 100.0
+                # Wichmann–Hill-style integer mixer keyed on (layer, idx).
+                # The old `(idx*17 ^ idx*31) % 100` produced visible regular
+                # tree-spacing patterns because the two terms were too
+                # correlated; mixing in the layer index decorrelates the
+                # three depth bands too.
+                h = (((idx * 2654435761) ^ (layer_idx * 40503)) & 0xFFFFFFFF) % 100 / 100.0
                 tree_x = (idx + 0.5 + (h - 0.5) * 0.6) * spacing
                 tree_top_y = y_off + (1.0 - h) * h_var
                 
@@ -936,7 +998,7 @@ class Lamp:
             
         return None
 
-    def _get_campfire_log_color(self, px, py):
+    def _compute_log_color(self, px, py):
         """Returns ANSI color code for pixel-art campfire logs, or None if no log/ember."""
         cx = self.body_width / 2
         bot = self.phys_height - 0.5
@@ -1147,11 +1209,8 @@ class Lamp:
             sy = y_off + row
             for col in range(self.body_width):
                 px = col + 0.5
-                if self.bicolor:
-                    (ft, t_pid), (fb, b_pid) = self.compute_field_bicolor_dual(px, py_t + 0.5, py_b + 0.5)
-                else:
-                    ft, fb = self.compute_field_dual(px, py_t + 0.5, py_b + 0.5)
-                    t_pid = b_pid = 0
+                ft, t_pid, fb, b_pid = self.compute_field_cell(
+                    px, py_t + 0.5, py_b + 0.5)
                 tl = self.field_to_level(ft)
                 bl = self.field_to_level(fb)
 
@@ -1160,11 +1219,11 @@ class Lamp:
                     t_bg = None
                     b_bg = None
                     if self.style == 'campfire' or ch.theme_name == 'campfire':
-                        t_bg = self._get_forest_bg_color(px, py_t + 0.5)
-                        b_bg = self._get_forest_bg_color(px, py_b + 0.5)
+                        t_bg = self._get_forest_bg(px, py_t + 0.5)
+                        b_bg = self._get_forest_bg(px, py_b + 0.5)
 
-                    t_log = self._get_campfire_log_color(px, py_t + 0.5)
-                    b_log = self._get_campfire_log_color(px, py_b + 0.5)
+                    t_log = self._get_log_color(px, py_t + 0.5)
+                    b_log = self._get_log_color(px, py_b + 0.5)
 
                     if t_log is not None or b_log is not None or t_bg is not None or b_bg is not None:
                         # Composite Layering: Background -> Lava/Embers -> Logs
@@ -1190,24 +1249,12 @@ class Lamp:
                     continue
 
                 if self.trails:
-                    entry = self.trail_buffer[row][col]
-                    has_lava = tl > 0 or bl > 0
-                    if has_lava:
-                        # Refresh the trail memory with the live cell
-                        entry[0] = tl
-                        entry[1] = bl
-                        entry[2] = self.TRAIL_LIFE
-                        entry[3] = t_pid
-                        entry[4] = b_pid
-                    elif entry[2] > 0:
-                        # Liquid now, but paint a fading ghost of the past
-                        gtl = self._trail_decay_level(entry[0], entry[2])
-                        gbl = self._trail_decay_level(entry[1], entry[2])
-                        entry[2] -= 1
-                        if gtl > 0 or gbl > 0:
-                            ch.draw_cell(screen, sy, x_off + col,
-                                         gtl, gbl, entry[3], entry[4])
-                            continue
+                    gtl, gbl, gtp, gbp, ghost = self._apply_trail(
+                        row, col, tl, bl, t_pid, b_pid)
+                    if ghost:
+                        ch.draw_cell(screen, sy, x_off + col,
+                                     gtl, gbl, gtp, gbp)
+                        continue
                 ch.draw_cell(screen, sy, x_off + col, tl, bl, t_pid, b_pid)
 
     def _render_body(self, screen, bx, by, bounds, ch):
@@ -1263,36 +1310,20 @@ class Lamp:
                     ch.draw_cell(screen, sy, bx + col, -1, -1, 0, 0)
                     continue
 
-                if self.bicolor:
-                    (ft, t_pid), (fb, b_pid) = self.compute_field_bicolor_dual(px, py_t + 0.5, py_b + 0.5)
-                else:
-                    ft, fb = self.compute_field_dual(px, py_t + 0.5, py_b + 0.5)
-                    t_pid = b_pid = 0
+                ft, t_pid, fb, b_pid = self.compute_field_cell(
+                    px, py_t + 0.5, py_b + 0.5)
 
                 tl = self.field_to_level(ft) if top_in else -1
                 bl = self.field_to_level(fb) if bot_in else -1
 
                 if self.trails and 0 <= row < len(self.trail_buffer) \
                         and 0 <= col < len(self.trail_buffer[row]):
-                    entry = self.trail_buffer[row][col]
-                    has_lava = (tl > 0) or (bl > 0)
-                    if has_lava:
-                        entry[0] = tl if tl > 0 else 0
-                        entry[1] = bl if bl > 0 else 0
-                        entry[2] = self.TRAIL_LIFE
-                        entry[3] = t_pid
-                        entry[4] = b_pid
-                    elif entry[2] > 0:
-                        gtl = self._trail_decay_level(entry[0], entry[2])
-                        gbl = self._trail_decay_level(entry[1], entry[2])
-                        entry[2] -= 1
-                        # Only paint the ghost inside glass
-                        if (gtl > 0 or gbl > 0) and (top_in or bot_in):
-                            draw_tl = gtl if top_in else -1
-                            draw_bl = gbl if bot_in else -1
-                            ch.draw_cell(screen, sy, bx + col,
-                                         draw_tl, draw_bl, entry[3], entry[4])
-                            continue
+                    gtl, gbl, gtp, gbp, ghost = self._apply_trail(
+                        row, col, tl, bl, t_pid, b_pid)
+                    if ghost:
+                        ch.draw_cell(screen, sy, bx + col,
+                                     gtl, gbl, gtp, gbp)
+                        continue
 
                 ch.draw_cell(screen, sy, bx + col, tl, bl, t_pid, b_pid)
 
@@ -1451,3 +1482,9 @@ class Lamp:
         # Trail buffer dims no longer match; force reallocation next frame
         self.trail_buffer = None
         self._body_bounds_cache = None
+        # Static scene buffers (campfire) must match new dimensions
+        if self.style in ('fireplace', 'campfire'):
+            self._build_scene_buffers()
+        else:
+            self._forest_buf = None
+            self._log_buf = None

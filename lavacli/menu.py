@@ -130,13 +130,26 @@ def _field_to_bg_level(field):
         return 3
 
 
-def _render_bg(screen, lava, ch, height, width):
-    """Render dim lava background behind menu."""
-    # Sample every other column for performance
+def _render_bg(screen, lava, ch, height, width, skip_rects=()):
+    """Render dim lava background behind menu.
+
+    ``skip_rects`` is an iterable of ``(x, y, w, h)`` rectangles (typically
+    the menu and preview boxes). Cells inside any rect are skipped because
+    they are immediately overpainted, saving a substantial chunk of the
+    per-frame field math.
+    """
     for row in range(height):
         py_t = row * 2
         py_b = row * 2 + 1
         for col in range(width):
+            # Skip cells occluded by the menu / preview overlay.
+            skip = False
+            for rx, ry, rw, rh in skip_rects:
+                if rx <= col < rx + rw and ry <= row < ry + rh:
+                    skip = True
+                    break
+            if skip:
+                continue
             ft, fb = lava.field_at_dual(col + 0.5, py_t + 0.5, py_b + 0.5)
             tl = _field_to_bg_level(ft)
             bl = _field_to_bg_level(fb)
@@ -206,8 +219,13 @@ def _render_preview(screen, preview, ch, px, py, inner_w, inner_h):
     preview.render(screen, lamp_x, lamp_y, ch)
 
 
-def show_menu(screen):
-    """Display the interactive configuration menu. Returns config dict or None."""
+def show_menu(screen, ch=None):
+    """Display the interactive configuration menu. Returns config dict or None.
+
+    ``ch`` may be an existing ``ColorHelper`` carried over from a previous
+    menu/animation cycle; reusing it avoids re-initializing hundreds of
+    curses color pairs every time the user bounces between menu and lamp.
+    """
     curses.curs_set(0)
     screen.clear()
 
@@ -218,16 +236,29 @@ def show_menu(screen):
 
     # Set up color helper for menu background. Also allocate pond color
     # pairs up-front so the koipond preview can render without crashing.
-    ch = ColorHelper(THEME_ORDER[selections[1]])
-    ch.setup()
-    ch.setup_pond_colors()
-    ch.setup_donut_colors()
-    ch.setup_scene_colors()
+    if ch is None:
+        ch = ColorHelper(THEME_ORDER[selections[1]])
+        ch.setup()
+        ch.setup_pond_colors()
+        ch.setup_donut_colors()
+        ch.setup_scene_colors()
+    else:
+        # Returning from an animation: align the helper with the menu's
+        # starting theme so the background preview matches the field state.
+        ch.change_theme(THEME_ORDER[selections[1]])
+        ch.setup_pond_colors()
+        ch.setup_donut_colors()
+        ch.setup_scene_colors()
+        ch.set_secondary_theme(None)
 
     def _apply_theme(name):
         ch.change_theme(name)
         ch.setup_pond_colors()
         ch.setup_donut_colors()
+        # Scene colors must be re-allocated after change_theme cleared the
+        # lazy cache (otherwise the first xmas/campfire frame stalls while
+        # init_pair fires for every scene shade).
+        ch.setup_scene_colors()
 
     def _apply_tint(tint_idx):
         """tint_idx 0 = no secondary (bicolor off); 1..N = THEME_ORDER[idx-1]."""
@@ -260,10 +291,6 @@ def show_menu(screen):
             screen.getch()
             continue
 
-        # Update and render background lava
-        lava.update()
-        _render_bg(screen, lava, ch, height, width)
-
         # Rotate tagline every ~3 seconds (~43 frames at 70ms)
         frame_count += 1
         if frame_count % 43 == 0:
@@ -282,6 +309,14 @@ def show_menu(screen):
             sx = max(0, (width - menu_width) // 2)
             preview_sx = None
         sy = max(0, (height - menu_height) // 2)
+
+        # Update and render background lava (skip cells occluded by the
+        # menu/preview boxes — they're immediately overpainted anyway).
+        lava.update()
+        skip_rects = [(sx, sy, menu_width, menu_height)]
+        if show_preview:
+            skip_rects.append((preview_sx, sy, PREVIEW_WIDTH, menu_height))
+        _render_bg(screen, lava, ch, height, width, skip_rects=skip_rects)
 
         # Decorative top border
         border_top = '\u2554' + '\u2550' * (menu_width - 2) + '\u2557'

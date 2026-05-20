@@ -94,13 +94,20 @@ def _config_from_args(args):
     if args.size is not None:
         size = args.size
 
+    # --bicolor only applies to lamp styles; silently dropping it on
+    # koipond/donut was confusing. Normalize here so downstream code never
+    # has to guard against the mismatch.
+    bicolor = args.bicolor
+    if bicolor and style in ('koipond', 'donut'):
+        bicolor = None
+
     return {
         'style': style,
         'theme': theme,
         'flow': flow,
         'count': count,
         'size': size,
-        'bicolor': args.bicolor,
+        'bicolor': bicolor,
     }
 
 
@@ -319,31 +326,45 @@ def _main(screen, args):
     screen.keypad(True)
 
     direct_config = _config_from_args(args)
-    deadline = None
-    if args.duration is not None:
-        deadline = time.monotonic() + args.duration
+
+    # Single shared ColorHelper for the whole session — re-themed in place
+    # for each mode change. This stops the curses color-pair counter from
+    # creeping toward COLOR_PAIRS over long menu↔anim cycles.
+    ch = ColorHelper(THEME_ORDER[0])
+    ch.setup()
+    ch.setup_pond_colors()
+    ch.setup_donut_colors()
+    ch.setup_scene_colors()
+
+    def _deadline():
+        # The duration timer counts only against the running animation,
+        # not the menu — each launch starts with a fresh budget so opening
+        # the menu mid-session never silently shortens the next lamp.
+        if args.duration is None:
+            return None
+        return time.monotonic() + args.duration
 
     # Direct-launch mode: skip menu entirely, run once, exit.
     if direct_config is not None:
         if direct_config['style'] == 'koipond':
-            _run_pond(screen, direct_config, deadline=deadline)
+            _run_pond(screen, direct_config, ch=ch, deadline=_deadline())
         elif direct_config['style'] == 'donut':
-            _run_donut(screen, direct_config, deadline=deadline)
+            _run_donut(screen, direct_config, ch=ch, deadline=_deadline())
         else:
-            _run_lamp(screen, direct_config, deadline=deadline)
+            _run_lamp(screen, direct_config, ch=ch, deadline=_deadline())
         return
 
     while True:
-        config = show_menu(screen)
+        config = show_menu(screen, ch=ch)
         if config is None:
             return
 
         if config['style'] == 'koipond':
-            result = _run_pond(screen, config, deadline=deadline)
+            result = _run_pond(screen, config, ch=ch, deadline=_deadline())
         elif config['style'] == 'donut':
-            result = _run_donut(screen, config, deadline=deadline)
+            result = _run_donut(screen, config, ch=ch, deadline=_deadline())
         else:
-            result = _run_lamp(screen, config, deadline=deadline)
+            result = _run_lamp(screen, config, ch=ch, deadline=_deadline())
 
         if result:
             continue  # M pressed: back to menu
@@ -351,13 +372,19 @@ def _main(screen, args):
             break     # Q pressed: quit
 
 
-def _run_lamp(screen, config, deadline=None):
+def _run_lamp(screen, config, ch=None, deadline=None):
     """Run the lamp animation. Returns True to go back to menu, False to quit."""
-    ch = ColorHelper(config['theme'])
-    ch.setup()
+    if ch is None:
+        ch = ColorHelper(config['theme'])
+        ch.setup()
+    else:
+        # Re-theme the shared helper for this run instead of allocating a
+        # new ColorHelper (and a fresh batch of curses color pairs) each
+        # time the user re-enters this mode.
+        ch.change_theme(config['theme'])
+        ch.setup_scene_colors()
     bicolor_theme = config.get('bicolor')
-    if bicolor_theme:
-        ch.set_secondary_theme(bicolor_theme)
+    ch.set_secondary_theme(bicolor_theme if bicolor_theme else None)
 
     is_fullscreen = config['style'] in ('freestyle', 'fireplace', 'campfire', 'xmas')
     lamp_count = 1 if is_fullscreen else config['count']
@@ -473,10 +500,13 @@ def _run_lamp(screen, config, deadline=None):
                           _draw, _update, _draw_hud_fn, _handle_key, None)
 
 
-def _run_donut(screen, config, deadline=None):
+def _run_donut(screen, config, ch=None, deadline=None):
     """Run the spinning donut animation. Returns True to go back to menu, False to quit."""
-    ch = ColorHelper(config['theme'])
-    ch.setup()
+    if ch is None:
+        ch = ColorHelper(config['theme'])
+        ch.setup()
+    else:
+        ch.change_theme(config['theme'])
     ch.setup_donut_colors()
 
     term_h, term_w = screen.getmaxyx()
@@ -518,19 +548,27 @@ def _run_donut(screen, config, deadline=None):
         elif key in (ord('v'), ord('V')):
             st['donut'].prev_shade()
         elif key in (ord('r'), ord('R')):
-            st['donut'] = Donut(st['term_w'], st['term_h'] - 1,
-                                st['donut'].speed_mult,
-                                theme_name=THEME_ORDER[st['theme_idx']])
+            # Preserve user-tuned state across reset (matches lamp behavior).
+            prev = st['donut']
+            new_donut = Donut(st['term_w'], st['term_h'] - 1,
+                              prev.speed_mult,
+                              theme_name=THEME_ORDER[st['theme_idx']])
+            new_donut.paused = prev.paused
+            new_donut.shade_mode = prev.shade_mode
+            st['donut'] = new_donut
         return False
 
     return _run_animation(screen, deadline, ch, state,
                           _draw, _update, _draw_hud_fn, _handle_key, None)
 
 
-def _run_pond(screen, config, deadline=None):
+def _run_pond(screen, config, ch=None, deadline=None):
     """Run the koi pond animation. Returns True to go back to menu, False to quit."""
-    ch = ColorHelper(config['theme'])
-    ch.setup()
+    if ch is None:
+        ch = ColorHelper(config['theme'])
+        ch.setup()
+    else:
+        ch.change_theme(config['theme'])
     ch.setup_pond_colors()
 
     term_h, term_w = screen.getmaxyx()
@@ -572,8 +610,12 @@ def _run_pond(screen, config, deadline=None):
         elif key in (ord('v'), ord('V')):
             st['pond'].remove_fish()
         elif key in (ord('r'), ord('R')):
-            st['pond'] = Pond(st['term_w'], st['term_h'] - 1,
-                              st['fish_count'], st['pond'].speed_mult)
+            # Preserve user-tuned state across reset (matches lamp behavior).
+            prev = st['pond']
+            new_pond = Pond(st['term_w'], st['term_h'] - 1,
+                            st['fish_count'], prev.speed_mult)
+            new_pond.paused = prev.paused
+            st['pond'] = new_pond
         return False
 
     return _run_animation(screen, deadline, ch, state,

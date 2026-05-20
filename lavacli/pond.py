@@ -239,9 +239,19 @@ class Pond:
     def render(self, screen, ch, x_off=0, y_off=0):
         """Render the pond using a buffer + half-block output."""
         w, ph = self.width, self.phys_h
-        # Fast copy of the pre-rendered pad background
-        buffer = [row[:] for row in self._pad_buf]
-        self._render_buf = buffer
+        # Reset the live buffer in-place from the static lily-pad backdrop.
+        # Slice assignment avoids allocating phys_h fresh row lists every
+        # frame — the main cost in the old `[row[:] for row in pad_buf]`
+        # pattern was GC churn on ~24k tuples per second.
+        buffer = self._render_buf
+        pad = self._pad_buf
+        if len(buffer) != ph or (ph and len(buffer[0]) != w):
+            # Dimension mismatch after resize: realloc once
+            buffer = [list(row) for row in pad]
+            self._render_buf = buffer
+        else:
+            for py in range(ph):
+                buffer[py][:] = pad[py]
 
         for fish in self.fish_list:
             self._stamp_fish(buffer, fish, w, ph)

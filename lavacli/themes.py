@@ -291,6 +291,9 @@ class ColorHelper:
         self._fish_pairs = {}
         self._has_256 = False
         self._next_pair_id = 1
+        # Hot-path cache: the current theme's "liquid" (background) color.
+        # Avoids a dict lookup inside draw_colored_cell on every cell.
+        self._liquid_color = self.theme['liquid']
         # Bicolor support: when a secondary theme is set, palette_id=1
         # cells resolve through _level_colors_b via lazy pair allocation.
         self._secondary_theme_name = None
@@ -810,7 +813,7 @@ class ColorHelper:
         renderer so each sprinkle can come from a different theme palette
         while the torus sits on the primary theme's liquid backdrop.
         """
-        liquid = self.theme['liquid']
+        liquid = self._liquid_color  # hot-path: cached, no dict lookup
         tc = liquid if top_color is None else top_color
         bc = liquid if bot_color is None else bot_color
         try:
@@ -835,5 +838,12 @@ class ColorHelper:
         # Subsequent lazy allocations overwrite any orphaned pair IDs from the
         # previous theme — safe because curses redefines on init_pair collision.
         self.setup()
+        # Hoisted theme liquid color so per-cell draw paths don't pay a dict
+        # lookup. Updated here and in set_theme/setup so it always matches.
+        self._liquid_color = self.theme['liquid']
+        # Scene colors live in the lazy cache that change_theme just cleared.
+        # Reseed them so the first xmas/campfire frame after a theme switch
+        # doesn't stall while curses lazily allocates each shade pair.
+        self.setup_scene_colors()
         if self._secondary_theme_name is not None:
             self.set_secondary_theme(self._secondary_theme_name)
