@@ -4,6 +4,19 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] - 2026-05-28
+
+A focused follow-up bug-hunt over the `resize()` path, prompted by a fresh top-to-bottom audit of all eight modules (two independent adversarial passes). It surfaced a single root-cause pattern — a resize handler that rescales metaball *positions* but forgets the metaball *radius* — present in two places. Both are visual-only (no crash); SemVer-wise these are patch-level fixes, released as `2.2.0` per request. Severity tags (`[H#]`, `[M#]`) match the archived audit so the trail back to the analysis is clear.
+
+### Fixed
+
+- **Lava blobs didn't rescale on terminal resize** (`lamp.py` — H1) - `Lamp.resize()` updated `self.ball_radius` (the default used by `add_ball`) and rescaled each ball's `x`/`y`, but never updated the existing balls' `.radius` / `.radius_sq`. Because the metaball field reads `ball.radius_sq`, blobs kept their pre-resize pixel size while the lamp geometry changed around them — and any ball added *after* a resize used the new radius, so a single lamp could end up with mismatched blob sizes. Existing balls now scale by the same ratio applied to the default, preserving per-ball size differences (e.g. fireplace embers spawned at `0.6×`).
+- **Menu background lava didn't rescale on resize** (`menu.py` — M1) - Same pattern in `_MenuLava.resize()`: ball positions were rescaled but `radius_sq` was left stale, so `field_at_dual` painted weaker background blobs after a window resize. The radius is now recomputed from the new width (matching `__init__`'s `max(3.0, width * 0.15)` sizing).
+
+### Documentation
+
+- **Audit archived** - The audit driving this release lives at `~/.claude/plans/virtual-frolicking-gray.md`, with the same `H#`/`M#` tags used above. It records both the two findings and the larger set of paths that were traced and confirmed correct (divide-by-zero guards, trail-buffer sentinels, bicolor lazy color-pair allocation, donut z-buffer indexing, color-pair lifecycle, Perlin bounds).
+
 ## [2.1.0] - 2026-05-20
 
 A bug-hunt + performance pass driven by a top-to-bottom audit of the render hot path. Every change is bound to a specific finding from `bug-hunt-code-performance-dreamy-frog.md`; severity tags (`[H#]`, `[M#]`, `[L#]`) match that report so the trail back to the original analysis is clear.

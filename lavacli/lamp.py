@@ -1464,6 +1464,7 @@ class Lamp:
     def resize(self, new_width, new_height, new_base_h, new_cap_h, new_ball_r=None):
         """Resize the lamp, repositioning balls proportionally."""
         old_w, old_ph = self.body_width, self.phys_height
+        old_ball_r = self.ball_radius
         self.body_width = new_width
         self.body_height = new_height
         self.phys_height = new_height * 2
@@ -1476,7 +1477,14 @@ class Lamp:
         elif old_w > 0:
             self.ball_radius *= new_width / old_w
 
+        # Existing balls must rescale too, or the metaball field (which reads
+        # ball.radius_sq) keeps rendering blobs at the pre-resize pixel size.
+        # Scale by the same ratio applied to the default so per-ball size
+        # differences (e.g. fireplace embers spawned at 0.6x) are preserved.
+        r_scale = (self.ball_radius / old_ball_r) if old_ball_r > 0 else 1.0
         for ball in self.balls:
+            ball.radius *= r_scale
+            ball.radius_sq = ball.radius * ball.radius
             ball.x = ball.x * new_width / old_w if old_w > 0 else new_width / 2
             ball.y = ball.y * self.phys_height / old_ph if old_ph > 0 else self.phys_height / 2
         # Trail buffer dims no longer match; force reallocation next frame

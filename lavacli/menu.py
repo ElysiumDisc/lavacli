@@ -111,7 +111,13 @@ class _MenuLava:
         self.width = width
         self.height = height
         self.phys_h = height * 2
+        # Rescale the metaball radius too (matches __init__ sizing); otherwise
+        # the stale radius_sq makes field_at_dual paint weaker blobs after a
+        # resize. All menu balls share one size, so recompute it directly.
+        r = max(3.0, width * 0.15)
         for ball in self.balls:
+            ball.radius = r
+            ball.radius_sq = r * r
             ball.x = ball.x * width / old_w if old_w > 0 else width / 2
             ball.y = ball.y * self.phys_h / old_h if old_h > 0 else self.phys_h / 2
 
