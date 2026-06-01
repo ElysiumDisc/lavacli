@@ -319,6 +319,19 @@ class ColorHelper:
         # All renderable colors: 0=liquid, 1-5=lava, 6=rim
         all_colors = [liquid] + list(lava) + [rim]
         n = len(all_colors)
+
+        # Defensive: a terminal can advertise 256 COLORS yet expose far fewer
+        # color PAIRS. The static block below allocates n*n + 2n + 17 pairs; if
+        # the terminal can't supply that many, init_pair would raise partway
+        # through and leave the helper half-initialized. Degrade cleanly to the
+        # 8-color fallback instead. (No mainstream terminal hits this — modern
+        # ones expose 65,536 pairs — but it costs almost nothing to be safe.)
+        needed = n * n + 2 * n + 17
+        if curses.COLOR_PAIRS - 1 < needed:
+            self._has_256 = False
+            self._setup_basic()
+            return
+
         self._max_level = n - 1
         # Record the primary palette's colors-by-level for bicolor lookup
         self._level_colors_a = list(all_colors)

@@ -398,6 +398,11 @@ class Lamp:
                 self.balls.append(b)
         elif style == 'xmas':
             pass  # pure procedural flame — no ball physics
+        elif self.flow_type == 'liquid':
+            # Liquid (Perlin-noise) flow is field-driven: compute_field_cell's
+            # liquid branch ignores ball positions and update() early-returns,
+            # so spawning Ball objects here would be dead weight. Leave empty.
+            pass
         else:
             for i in range(num_balls):
                 y = random.uniform(self.phys_height * 0.55,
@@ -1259,6 +1264,10 @@ class Lamp:
 
     def _render_body(self, screen, bx, by, bounds, ch):
         """Render the glass body: metallic frame border + liquid + lava inside."""
+        # Allocate the trail buffer once up front (matches render_freestyle)
+        # instead of re-checking it on every body row.
+        if self.trails:
+            self._ensure_trail_buffer()
         for row in range(self.body_height):
             outer_left, outer_right = bounds[row]
             sy = by + row
@@ -1296,8 +1305,6 @@ class Lamp:
                                    r_top_in, r_bot_in)
 
             # -- Glass interior: liquid background + lava metaballs --
-            if self.trails:
-                self._ensure_trail_buffer()
             # Glass bounds depend only on row; compute once per row.
             glt, grt = self.get_glass_bounds(py_t)
             glb, grb = self.get_glass_bounds(py_b)
@@ -1333,19 +1340,19 @@ class Lamp:
         body_top_w = top_right - top_left + 1
         # Cap profile and reference width are invariant for the whole cap.
         _cp = self._get_cap_profile()
-        _denom = max(1, self.cap_height * 2)
+        # Map the cap's half-rows onto the profile's [0, 1] range so the very
+        # bottom half-row (index cap_height*2 - 1) lands at norm 1.0 — i.e. the
+        # profile's full-width end — and the cap connects flush to the body top.
+        # (Using cap_height*2 here left the bottom row a fraction short of full
+        # width, so its integer column span — derived from a different
+        # normalization — overhung the fill and left a faint seam.)
+        _denom = max(1, self.cap_height * 2 - 1)
         center = body_top_w / 2
         is_rocket = self.style == 'rocket'
         body_w_minus_1 = self.body_width - 1
 
         for row in range(self.cap_height):
             norm_y = row / max(1, self.cap_height - 1) if self.cap_height > 1 else 1.0
-            cl, cr = self._cap_bounds_at(norm_y, body_top_w)
-            left = int(math.ceil(cl)) + top_left
-            right = int(math.floor(cr)) - 1 + top_left
-            left = max(0, left)
-            right = min(body_w_minus_1, right)
-            sy = y_off + row
 
             # Cap shape and half-row widths depend only on row; hoist them.
             py_t = row * 2
@@ -1354,6 +1361,16 @@ class Lamp:
             cap_w_b = _interpolate_profile(_cp, py_b / _denom) * body_top_w
             half_t = cap_w_t / 2
             half_b = cap_w_b / 2
+
+            # Integer column span = union of the two half-rows, derived from the
+            # SAME widths used by the in/out test below so the span never over-
+            # or under-shoots the filled cells.
+            wider = half_t if half_t >= half_b else half_b
+            left = int(math.ceil(center - wider)) + top_left
+            right = int(math.floor(center + wider)) - 1 + top_left
+            left = max(0, left)
+            right = min(body_w_minus_1, right)
+            sy = y_off + row
 
             for col in range(left, right + 1):
                 px = col - top_left + 0.5

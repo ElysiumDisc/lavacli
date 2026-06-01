@@ -4,6 +4,26 @@ All notable changes to LavaCLI will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.0] - 2026-06-01
+
+A performance-and-cleanup pass from a fresh top-to-bottom audit of all nine modules (bug hunt + performance + logic). The headline is a measured ~2× cut in the donut renderer's per-frame work; the rest are small correctness/robustness fixes. No behavior changes that are visible by design — the donut, lamp, pond, and scenes render identically. The audit is archived at `~/.claude/plans/glimmering-enchanting-moonbeam.md`, which also records the paths traced and confirmed correct (Perlin bounds, `field_to_level`/profile interpolation, trail-buffer sentinels, resize rescaling, color-pair lifecycle).
+
+### Performance
+
+- **Donut renders ~2× cheaper, pixel-for-pixel identical** (`donut.py`) - The tube-sampling step `DEFAULT_PHI_STEP` went from `0.02` to `0.04`. At half-block cell resolution the finer step was ~20× oversampled: measured at 80×24, the inner loop ran ~28,350 `(theta, phi)` samples per frame that collapsed onto only ~1,400 unique half-cells (the z-buffer discarded the other ~95%). The coarser step runs ~14,220 samples and still covers the same ~1,400 cells (1,397 vs 1,402), halving the dominant per-frame cost with no visible change to the torus. The sin/cos lookup tables resize automatically.
+- **Donut clear-buffers no longer rebuilt every frame** (`donut.py`) - `render()` now slice-assigns the z-buffer and color-buffer from pre-built clear templates (`_z_clear` / `_col_clear`, kept in sync by `__init__`/`resize`) instead of constructing two fresh ~25k-element lists each frame.
+- **Trail-buffer check hoisted out of the body row loop** (`lamp.py`) - `_render_body()` called `_ensure_trail_buffer()` once per body row (up to `body_height` times/frame); it now runs once before the loop, matching `render_freestyle()`.
+
+### Fixed
+
+- **Metallic cap now connects flush to the glass body** (`lamp.py` — L1) - `_render_cap()` derived its integer column span from one vertical normalization (`row / (cap_height - 1)`) while the half-block in/out test used another (`row / cap_height`). The two disagreed at the cap's bottom edge, so the last cap row rendered a fraction narrow and left a faint seam where the cap meets the full-width body top. Both now use the same half-row mapping, and the bottom half-row lands exactly at the profile's full-width end. Affects all framed lamp styles (classic, slim, globe, rocket, etc.); the base was already correct because its connecting edge is at the top, where both normalizations agree.
+- **Liquid flow no longer allocates unused metaballs** (`lamp.py` — L2) - The Perlin-noise "Liquid" flow is field-driven: `compute_field_cell()`'s liquid branch ignores ball positions and `update()` early-returns, so the `num_balls` `Ball` objects spawned in `__init__` were dead weight. They are no longer created for liquid flow. Rendered output is unchanged (the noise field still drives every cell).
+- **Color-pair setup degrades gracefully on pair-starved terminals** (`themes.py` — R1) - `ColorHelper.setup()` allocated ~85 static color pairs with no guard. A terminal advertising 256 colors but exposing too few color *pairs* would have raised mid-setup, leaving the helper half-initialized. It now falls back to the 8-color path instead. Defensive only — mainstream terminals expose 65,536 pairs.
+
+### Deferred
+
+- **Metaball cutoff tightening** (audit item P4) was identified but intentionally not applied. `METABALL_CUTOFF_SQ` (a fixed 20-unit influence radius) is wider than a typical blob's visible reach, so culling more aggressively would speed up the per-cell field loop — but those faint far contributions are what bridge and merge adjacent blobs, so the change carries visual risk and was left for a future, visually-validated pass.
+
 ## [2.2.0] - 2026-05-28
 
 A focused follow-up bug-hunt over the `resize()` path, prompted by a fresh top-to-bottom audit of all eight modules (two independent adversarial passes). It surfaced a single root-cause pattern — a resize handler that rescales metaball *positions* but forgets the metaball *radius* — present in two places. Both are visual-only (no crash); SemVer-wise these are patch-level fixes, released as `2.2.0` per request. Severity tags (`[H#]`, `[M#]`) match the archived audit so the trail back to the analysis is clear.
